@@ -6,7 +6,7 @@ File-driven AI trading agent. All state (sessions, config, logs) stored as files
 
 ```bash
 pnpm install
-pnpm dev        # Dev mode (tsx watch, port 3002)
+pnpm dev        # Dev mode (Guardian: UI→http://localhost:5173, Alice→47331, MCP→47332)
 pnpm build      # Production build (backend + UI)
 pnpm test       # Vitest
 pnpm test:e2e   # e2e test
