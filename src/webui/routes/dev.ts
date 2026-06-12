@@ -34,7 +34,7 @@ export function createDevRoutes(connectorCenter: ConnectorCenter) {
     const body = await c.req.json<{
       text: string
       media?: Array<{ type: 'image'; path: string }>
-      source?: 'heartbeat' | 'cron' | 'manual' | 'task'
+      source?: import('../../core/notifications-store.js').NotificationSource
     }>()
 
     try {

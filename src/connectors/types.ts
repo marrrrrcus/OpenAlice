@@ -1,5 +1,6 @@
 import type { MediaAttachment } from '../core/types.js'
 import type { StreamableResult } from '../core/ai-provider-manager.js'
+import type { NotificationSource } from '../core/notifications-store.js'
 
 // ==================== Send Types ====================
 
@@ -12,7 +13,7 @@ export interface SendPayload {
   /** Media attachments (e.g. screenshots from tools). */
   media?: MediaAttachment[]
   /** Where this payload originated from. */
-  source?: 'heartbeat' | 'cron' | 'manual' | 'task'
+  source?: NotificationSource
 }
 
 /** Result of a send() call. */

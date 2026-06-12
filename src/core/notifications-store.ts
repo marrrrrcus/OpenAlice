@@ -28,7 +28,7 @@ import { dataPath } from '@/core/paths.js'
 import { EventEmitter } from 'node:events'
 import type { MediaAttachment } from './types.js'
 
-export type NotificationSource = 'heartbeat' | 'cron' | 'manual' | 'task'
+export type NotificationSource = 'heartbeat' | 'cron' | 'manual' | 'task' | 'market-report'
 
 export interface NotificationInput {
   text: string

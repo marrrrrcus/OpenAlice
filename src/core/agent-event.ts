@@ -130,6 +130,7 @@ const SourceUnion = Type.Union([
   Type.Literal('cron'),
   Type.Literal('task'),
   Type.Literal('manual'),
+  Type.Literal('market-report'),
 ])
 
 const AgentWorkRequestedSchema = Type.Object({

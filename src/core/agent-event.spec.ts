@@ -81,6 +81,13 @@ describe('validateEventPayload', () => {
     })).not.toThrow()
   })
 
+  it('should accept agent.work.requested from market-report source', () => {
+    expect(() => validateEventPayload('agent.work.requested', {
+      source: 'market-report',
+      prompt: 'summarize market event',
+    })).not.toThrow()
+  })
+
   it('should reject agent.work.requested with unknown source', () => {
     expect(() => validateEventPayload('agent.work.requested', {
       source: 'bogus',

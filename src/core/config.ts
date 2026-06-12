@@ -283,6 +283,48 @@ export const autoTradingSchema = z.object({
 
 export type AutoTradingConfig = z.infer<typeof autoTradingSchema>
 
+/**
+ * Deterministic market report task — program fetches quotes + computes
+ * indicators, applies hysteresis rules, and only invokes the AI when a
+ * genuine market event fires. Replaces prompt-driven "check BTC every
+ * 30min" cron jobs (which burn tokens on data fetching via tool calls).
+ */
+export const marketReportSymbolSchema = z.object({
+  /** Display label used in reports and as the state key, e.g. "BTC". */
+  label: z.string(),
+  /** Symbol for crypto historical data (OpenBB convention), e.g. "BTCUSD". */
+  dataSymbol: z.string(),
+  /** Key into market-snapshot.json `signals` for the live price, e.g. "BTC/USDT:USDT". */
+  snapshotKey: z.string().optional(),
+})
+
+export const marketReportSchema = z.object({
+  enabled: z.boolean().default(false),
+  /** Check interval — every tick runs the deterministic rules. */
+  every: z.string().default('30m'),
+  /** Quiet-period summary interval. When no event fires, a program-built
+   *  one-liner goes out at most this often (no AI involved). */
+  summaryEvery: z.string().default('4h'),
+  /** Price move vs. last reported price (percent) that triggers a report. */
+  priceMovePct: z.number().positive().default(1),
+  rsi: z.object({
+    period: z.number().int().positive().default(14),
+    oversold: z.number().default(30),
+    overbought: z.number().default(70),
+    /** Hysteresis buffer — zone resets only after RSI retreats past
+     *  threshold±buffer, preventing alert spam on threshold oscillation. */
+    releaseBuffer: z.number().positive().default(5),
+  }).default({ period: 14, oversold: 30, overbought: 70, releaseBuffer: 5 }),
+  symbols: z.array(marketReportSymbolSchema).default([
+    { label: 'BTC', dataSymbol: 'BTCUSD', snapshotKey: 'BTC/USDT:USDT' },
+  ]),
+  snapshotPath: z.string().default('data/market-snapshot.json'),
+  statePath: z.string().default('data/market-report-state.json'),
+})
+
+export type MarketReportConfig = z.infer<typeof marketReportSchema>
+export type MarketReportSymbolConfig = z.infer<typeof marketReportSymbolSchema>
+
 export const toolsSchema = z.object({
   /** Tool names that are disabled. Tools not listed are enabled by default. */
   disabled: z.array(z.string()).default([]),
@@ -375,6 +417,7 @@ export type Config = {
   heartbeat: z.infer<typeof heartbeatSchema>
   snapshot: z.infer<typeof snapshotSchema>
   autoTrading: AutoTradingConfig
+  marketReport: MarketReportConfig
   mcp: z.infer<typeof mcpSchema>
   connectors: z.infer<typeof connectorsSchema>
   news: z.infer<typeof newsCollectorSchema>
@@ -417,7 +460,7 @@ export async function loadConfig(): Promise<Config> {
   // is pending. See src/migrations/INDEX.md for the full list.
   await runMigrations()
 
-  const files = ['engine.json', 'agent.json', 'crypto.json', 'securities.json', 'market-data.json', 'compaction.json', 'ai-provider-manager.json', 'heartbeat.json', 'snapshot.json', 'auto-trading.json', 'mcp.json', 'connectors.json', 'news.json', 'tools.json', 'webhook.json'] as const
+  const files = ['engine.json', 'agent.json', 'crypto.json', 'securities.json', 'market-data.json', 'compaction.json', 'ai-provider-manager.json', 'heartbeat.json', 'snapshot.json', 'auto-trading.json', 'market-report.json', 'mcp.json', 'connectors.json', 'news.json', 'tools.json', 'webhook.json'] as const
   const raws = await Promise.all(files.map((f) => loadJsonFile(f)))
 
   const config: Config = {
@@ -431,11 +474,12 @@ export async function loadConfig(): Promise<Config> {
     heartbeat:     await parseAndSeed(files[7], heartbeatSchema, raws[7]),
     snapshot:      await parseAndSeed(files[8], snapshotSchema, raws[8]),
     autoTrading:   await parseAndSeed(files[9], autoTradingSchema, raws[9]),
-    mcp:           await parseAndSeed(files[10], mcpSchema, raws[10]),
-    connectors:    await parseAndSeed(files[11], connectorsSchema, raws[11]),
-    news:          await parseAndSeed(files[12], newsCollectorSchema, raws[12]),
-    tools:         await parseAndSeed(files[13], toolsSchema, raws[13]),
-    webhook:       await parseAndSeed(files[14], webhookSchema, raws[14]),
+    marketReport:  await parseAndSeed(files[10], marketReportSchema, raws[10]),
+    mcp:           await parseAndSeed(files[11], mcpSchema, raws[11]),
+    connectors:    await parseAndSeed(files[12], connectorsSchema, raws[12]),
+    news:          await parseAndSeed(files[13], newsCollectorSchema, raws[13]),
+    tools:         await parseAndSeed(files[14], toolsSchema, raws[14]),
+    webhook:       await parseAndSeed(files[15], webhookSchema, raws[15]),
   }
 
   // Spawn-time-fixed channel: when guardian (Electron main) spawns the
@@ -931,6 +975,7 @@ const sectionSchemas: Record<ConfigSection, z.ZodTypeAny> = {
   heartbeat: heartbeatSchema,
   snapshot: snapshotSchema,
   autoTrading: autoTradingSchema,
+  marketReport: marketReportSchema,
   mcp: mcpSchema,
   connectors: connectorsSchema,
   news: newsCollectorSchema,
@@ -949,6 +994,7 @@ const sectionFiles: Record<ConfigSection, string> = {
   heartbeat: 'heartbeat.json',
   snapshot: 'snapshot.json',
   autoTrading: 'auto-trading.json',
+  marketReport: 'market-report.json',
   mcp: 'mcp.json',
   connectors: 'connectors.json',
   news: 'news.json',

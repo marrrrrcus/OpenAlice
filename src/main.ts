@@ -49,6 +49,7 @@ import { createListenerRegistry } from './core/listener-registry.js'
 import { createEventBus } from './core/event-bus.js'
 import { createCronEngine, createCronListener, createCronTools } from './task/cron/index.js'
 import { createHeartbeat } from './task/heartbeat/index.js'
+import { createMarketReport } from './task/market-report/index.js'
 import { createAutoTradingScheduler } from './domain/auto-trading/scheduler.js'
 import { createMetricsListener } from './task/metrics/index.js'
 import { createAgentWorkListener } from './core/agent-work-listener.js'
@@ -297,6 +298,20 @@ async function main() {
     console.log(`heartbeat: enabled (every ${config.heartbeat.every})`)
   }
 
+  // ==================== Market Report (Pump-driven, deterministic) ====================
+
+  const marketReport = createMarketReport({
+    config: config.marketReport,
+    agentWorkListener, registry: listenerRegistry,
+    connectorCenter,
+    cryptoClient,
+    session: new SessionStore('market-report'),
+  })
+  await marketReport.start()
+  if (config.marketReport.enabled) {
+    console.log(`market-report: enabled (every ${config.marketReport.every}, quiet summary every ${config.marketReport.summaryEvery})`)
+  }
+
   // ==================== Auto-trading Scheduler (Pump-driven, Phase 1) ====================
 
   const autoTradingScheduler = createAutoTradingScheduler({
@@ -465,6 +480,7 @@ async function main() {
     stopped = true
     newsCollector?.stop()
     heartbeat.stop()
+    marketReport.stop()
     autoTradingScheduler.stop()
     metricsListener.stop()
     cronListener.stop()
