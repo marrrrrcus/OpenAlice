@@ -38,6 +38,8 @@ vi.mock('ccxt', () => {
     default: {
       bybit: MockExchange,
       binance: MockExchange,
+      binanceusdm: MockExchange,
+      okx: MockExchange,
     },
   }
 })
@@ -270,6 +272,55 @@ describe('CcxtBroker — placeOrder async', () => {
     expect(result.orderId).toBe('ord-42')
     // No execution — exchanges are async, fill confirmed via sync
     expect(result.execution).toBeUndefined()
+  })
+})
+
+describe('CcxtBroker — OKX position side', () => {
+  it('adds posSide=long for opening swap BUY orders', async () => {
+    const acc = makeAccount({ exchange: 'okx' })
+    setInitialized(acc, {
+      'ETH/USDT:USDT': makeSwapMarket('ETH', 'USDT', 'ETH/USDT:USDT'),
+    })
+    ;(acc as any).exchange.createOrder = vi.fn().mockResolvedValue({
+      id: 'ord-okx-long', status: 'open',
+    })
+
+    const contract = new Contract()
+    contract.localSymbol = 'ETH/USDT:USDT'
+    const order = new Order()
+    order.action = 'BUY'
+    order.orderType = 'MKT'
+    order.totalQuantity = new Decimal('0.01')
+
+    const result = await acc.placeOrder(contract, order)
+
+    expect(result.success).toBe(true)
+    const params = (acc as any).exchange.createOrder.mock.calls[0][5]
+    expect(params.posSide).toBe('long')
+  })
+
+  it('adds posSide=long when reducing an OKX long swap via SELL', async () => {
+    const acc = makeAccount({ exchange: 'okx' })
+    setInitialized(acc, {
+      'ETH/USDT:USDT': makeSwapMarket('ETH', 'USDT', 'ETH/USDT:USDT'),
+    })
+    ;(acc as any).exchange.createOrder = vi.fn().mockResolvedValue({
+      id: 'ord-okx-reduce-long', status: 'open',
+    })
+
+    const contract = new Contract()
+    contract.localSymbol = 'ETH/USDT:USDT'
+    const order = new Order()
+    order.action = 'SELL'
+    order.orderType = 'MKT'
+    order.totalQuantity = new Decimal('0.01')
+
+    const result = await acc.placeOrder(contract, order, undefined, { reduceOnly: true })
+
+    expect(result.success).toBe(true)
+    const params = (acc as any).exchange.createOrder.mock.calls[0][5]
+    expect(params.reduceOnly).toBe(true)
+    expect(params.posSide).toBe('long')
   })
 })
 
@@ -838,16 +889,16 @@ describe('CcxtBroker — getAccount', () => {
       // reads the per-coin form.
       USDT: { free: 8000, used: 2000, total: 10000 },
     })
-    // Positions must include contracts/contractSize/markPrice so the broker
-    // can reconstruct netLiquidation from fresh position market values.
+    // Derivative positions contribute only their unrealizedPnL to NLV —
+    // notional (contracts × markPrice) is leverage exposure, not equity.
     ;(acc as any).exchange.fetchPositions = vi.fn().mockResolvedValue([
       { contracts: 1, contractSize: 1, markPrice: 1500, unrealizedPnl: 500, realizedPnl: 100, side: 'long' },
       { contracts: 1, contractSize: 1, markPrice: 500, unrealizedPnl: -200, realizedPnl: 50, side: 'long' },
     ])
 
     const info = await acc.getAccount()
-    // netLiq = free (8000) + position market values (1500 + 500 = 2000) = 10000
-    expect(info.netLiquidation).toBe('10000')
+    // netLiq = free (8000) + used margin (2000) + unrealizedPnL (300) = 10300
+    expect(info.netLiquidation).toBe('10300')
     expect(info.totalCashValue).toBe('8000')
     expect(info.initMarginReq).toBe('2000')
     expect(info.unrealizedPnL).toBe('300')
@@ -876,7 +927,27 @@ describe('CcxtBroker — getAccount', () => {
     const info = await acc.getAccount()
     expect(info.totalCashValue).toBe('1800')   // 1000 + 500 + 300
     expect(info.initMarginReq).toBe('300')     // 200 + 0 + 100
-    expect(info.netLiquidation).toBe('1800')   // no positions, equity = cash
+    expect(info.netLiquidation).toBe('2100')   // free (1800) + used (300), no positions
+  })
+
+  it('binanceusdm: uses totalMarginBalance directly (free+used already include PnL)', async () => {
+    const acc = makeAccount({ exchange: 'binanceusdm' })
+    setInitialized(acc, {})
+
+    // Binance futures CCXT mapping: free = availableBalance, used = initialMargin,
+    // and free + used = walletBalance + unrealizedPnL. Adding unrealizedPnL on
+    // top would double-count it — the broker must read info.totalMarginBalance.
+    ;(acc as any).exchange.fetchBalance = vi.fn().mockResolvedValue({
+      USDT: { free: 1500, used: 534.16, total: 2034.16 },
+      info: { totalMarginBalance: '2034.16', totalWalletBalance: '1534.16' },
+    })
+    ;(acc as any).exchange.fetchPositions = vi.fn().mockResolvedValue([
+      { contracts: 0.277, contractSize: 1, markPrice: 64175, unrealizedPnl: 500, realizedPnl: 0, side: 'long' },
+    ])
+
+    const info = await acc.getAccount()
+    expect(info.netLiquidation).toBe('2034.16')  // NOT 2034.16 + 500
+    expect(info.unrealizedPnL).toBe('500')
   })
 
   it('includes spot holdings value in netLiquidation', async () => {

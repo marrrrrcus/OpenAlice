@@ -770,8 +770,26 @@ export class CcxtBroker implements IBroker<CcxtBrokerMeta> {
         spotValue = spotValue.plus(new Decimal(sp.marketValue))
       }
 
-      // NLV = total stablecoin balance (free + locked margin) + derivative PnL + spot asset value
-      const netLiquidation = free.plus(used).plus(unrealizedPnL).plus(spotValue)
+      // NLV calculation — exchange-specific because CCXT maps balance fields differently:
+      //
+      // Binance USDT-M/COIN-M futures (binanceusdm, binancecoinm):
+      //   free = availableBalance = walletBalance + unrealizedPnL - initialMargin
+      //   used = initialMargin
+      //   free + used = walletBalance + unrealizedPnL = totalMarginBalance (PnL already included)
+      //   → use totalMarginBalance from raw info directly; adding unrealizedPnL again would double-count.
+      //
+      // Other exchanges (OKX, Bybit, Hyperliquid, …):
+      //   free + used = walletBalance (PnL not included)
+      //   → add unrealizedPnL to arrive at true equity.
+      const rawInfo = (balance as unknown as Record<string, unknown>).info as Record<string, unknown>
+      const isBinanceFutures = this.exchangeName === 'binanceusdm' || this.exchangeName === 'binancecoinm'
+      const binanceMarginBal = isBinanceFutures && rawInfo?.totalMarginBalance != null
+        ? new Decimal(String(rawInfo.totalMarginBalance))
+        : null
+
+      const netLiquidation = binanceMarginBal != null
+        ? binanceMarginBal.plus(spotValue)
+        : free.plus(used).plus(unrealizedPnL).plus(spotValue)
 
       return {
         baseCurrency: 'USD',
