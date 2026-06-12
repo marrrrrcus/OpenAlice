@@ -38,6 +38,21 @@ export function SchemaFormFields({ fields, formData, setField, showSecrets }: {
                 {f.description && <p className="text-[11px] text-text-muted/60 mt-1">{f.description}</p>}
               </Field>
             )
+          case 'checkbox':
+            return (
+              <Field key={f.key} label="">
+                <label className="flex items-center gap-2 cursor-pointer select-none">
+                  <input
+                    type="checkbox"
+                    checked={value === 'true'}
+                    onChange={(e) => setField(f.key, e.target.checked ? 'true' : 'false')}
+                    className="w-4 h-4 accent-accent"
+                  />
+                  <span className="text-[13px] text-text">{f.title}</span>
+                </label>
+                {f.description && <p className="text-[11px] text-text-muted/60 mt-1">{f.description}</p>}
+              </Field>
+            )
           case 'text':
           default:
             return (

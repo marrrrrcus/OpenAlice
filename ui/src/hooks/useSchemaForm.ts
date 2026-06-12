@@ -12,7 +12,7 @@ import type { JsonSchema, JsonSchemaProperty } from '../api/types'
 
 export interface SchemaField {
   key: string
-  type: 'text' | 'password' | 'select'
+  type: 'text' | 'password' | 'select' | 'checkbox'
   title: string
   description?: string
   required: boolean
@@ -67,6 +67,8 @@ export function useSchemaForm(
       } else if (prop.enum) {
         const options = prop.enum.map(v => ({ value: v, label: v }))
         fields.push({ key, type: 'select', title, description: prop.description, required: isRequired, options })
+      } else if (prop.type === 'boolean') {
+        fields.push({ key, type: 'checkbox', title, description: prop.description, required: isRequired })
       } else {
         fields.push({ key, type: 'text', title, description: prop.description, required: isRequired, defaultValue: prop.default !== undefined ? String(prop.default) : undefined })
       }
@@ -100,13 +102,18 @@ export function useSchemaForm(
   }, [])
 
   const getSubmitData = useCallback((): Record<string, unknown> => {
+    const checkboxKeys = new Set(fieldDefs.filter(f => f.type === 'checkbox').map(f => f.key))
     const result: Record<string, unknown> = { ...constValues }
     for (const [key, value] of Object.entries(formData)) {
       if (key.endsWith('__custom')) continue
-      if (value !== '' && value !== undefined) result[key] = value
+      if (checkboxKeys.has(key)) {
+        result[key] = value === 'true'
+      } else if (value !== '' && value !== undefined) {
+        result[key] = value
+      }
     }
     return result
-  }, [constValues, formData])
+  }, [constValues, formData, fieldDefs])
 
   const validate = useCallback((): string | null => {
     for (const field of fieldDefs) {

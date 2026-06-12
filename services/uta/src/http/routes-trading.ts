@@ -188,7 +188,7 @@ export function createTradingRoutes(ctx: EngineContext) {
     let broker: { init: () => Promise<void>; getAccount: () => Promise<unknown>; getPositions: () => Promise<unknown>; close: () => Promise<void> } | null = null
     try {
       const { createBroker } = await import('../domain/trading/brokers/factory.js')
-      const { utaConfigSchema } = await import('@traderalice/uta-protocol')
+      const { utaConfigSchema } = await import('@/core/config.js')
       const body = await c.req.json()
       const utaConfig = utaConfigSchema.parse({ ...body, id: body.id ?? '__test__' })
       broker = createBroker(utaConfig)
