@@ -25,7 +25,6 @@ import {
   type TpSlParams,
 } from '../types.js'
 import '../../contract-ext.js'
-import { aggregateAccountFromPositions } from '../../position-math.js'
 import { buildPosition } from '../contract-builder.js'
 import { CCXT_CREDENTIAL_FIELDS, type CcxtBrokerConfig, type CcxtMarket, type FundingRate, type OrderBook, type OrderBookLevel } from './ccxt-types.js'
 import { MAX_INIT_RETRIES, INIT_RETRY_BASE_MS } from './ccxt-types.js'
@@ -443,12 +442,40 @@ export class CcxtBroker implements IBroker<CcxtBrokerMeta> {
 
       const ccxtOrderType = ibkrOrderTypeToCcxt(order.orderType)
       const side = order.action.toLowerCase() as 'buy' | 'sell'
+      const market = this.markets[ccxtSymbol]
+      this.applyOkxPositionSide(params, market, side)
       // CCXT SDK expects number for price — convert at the wire boundary.
       const refPrice = ccxtOrderType === 'limit' && !order.lmtPrice.equals(UNSET_DECIMAL)
         ? order.lmtPrice.toNumber()
         : undefined
 
       const placeOverride = this.overrides.placeOrder
+      // #region agent log
+      fetch('http://127.0.0.1:7718/ingest/5295aec3-6f32-4540-92fa-f26dfe2336d0', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-Debug-Session-Id': 'ec3939' },
+        body: JSON.stringify({
+          sessionId: 'ec3939',
+          runId: 'okx-posside-fix',
+          hypothesisId: 'OKX_POS_SIDE',
+          location: 'services/uta/src/domain/trading/brokers/ccxt/CcxtBroker.ts:placeOrder',
+          message: 'ccxt placeOrder params before submit',
+          data: {
+            exchange: this.exchangeName,
+            symbol: ccxtSymbol,
+            marketType: market?.type ?? null,
+            side,
+            orderType: ccxtOrderType,
+            hasReduceOnly: params.reduceOnly === true,
+            posSide: params.posSide ?? null,
+            tdMode: params.tdMode ?? null,
+            hasTakeProfit: Boolean(params.takeProfit),
+            hasStopLoss: Boolean(params.stopLoss),
+          },
+          timestamp: Date.now(),
+        }),
+      }).catch(() => {})
+      // #endregion
       const ccxtOrder = placeOverride
         ? await placeOverride(this.exchange, ccxtSymbol, ccxtOrderType, side, parseFloat(size), refPrice, params, defaultPlaceOrder)
         : await defaultPlaceOrder(this.exchange, ccxtSymbol, ccxtOrderType, side, parseFloat(size), refPrice, params)
@@ -464,8 +491,38 @@ export class CcxtBroker implements IBroker<CcxtBrokerMeta> {
         orderState: makeOrderState(ccxtOrder.status),
       }
     } catch (err) {
+      // #region agent log
+      fetch('http://127.0.0.1:7718/ingest/5295aec3-6f32-4540-92fa-f26dfe2336d0', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-Debug-Session-Id': 'ec3939' },
+        body: JSON.stringify({
+          sessionId: 'ec3939',
+          runId: 'okx-posside-fix',
+          hypothesisId: 'OKX_POS_SIDE',
+          location: 'services/uta/src/domain/trading/brokers/ccxt/CcxtBroker.ts:placeOrder',
+          message: 'ccxt placeOrder rejected',
+          data: {
+            exchange: this.exchangeName,
+            symbol: ccxtSymbol,
+            error: err instanceof Error ? err.message : String(err),
+          },
+          timestamp: Date.now(),
+        }),
+      }).catch(() => {})
+      // #endregion
       return { success: false, error: err instanceof Error ? err.message : String(err) }
     }
+  }
+
+  private applyOkxPositionSide(params: Record<string, unknown>, market: CcxtMarket | undefined, side: 'buy' | 'sell'): void {
+    if (this.exchangeName !== 'okx') return
+    if (params.posSide !== undefined) return
+    if (market?.type !== 'swap' && market?.type !== 'future') return
+
+    const reduceOnly = params.reduceOnly === true || params.reduceOnly === 'true'
+    params.posSide = reduceOnly
+      ? side === 'sell' ? 'long' : 'short'
+      : side === 'buy' ? 'long' : 'short'
   }
 
   async cancelOrder(orderId: string): Promise<PlaceOrderResult> {
@@ -694,34 +751,27 @@ export class CcxtBroker implements IBroker<CcxtBrokerMeta> {
         used = used.plus(new Decimal(String(e['used'] ?? 0)))
       }
 
-      // Aggregate P&L and market value from derivative positions.
-      // We use position-level markPrice (which is fresh from the exchange's
-      // websocket feed) rather than balance.total (which is a cached wallet
-      // snapshot that may not update between funding/settlement cycles).
+      // Collect P&L from derivative positions.
+      // For leveraged futures/perps, only unrealizedPnL contributes to NLV —
+      // the margin is already locked in `used` stablecoin, so adding the
+      // full notional (quantity × markPrice) would inflate NLV by (leverage-1)×margin.
       let unrealizedPnL = new Decimal(0)
       let realizedPnL = new Decimal(0)
-      const aggregateInputs: Array<{ side: 'long' | 'short'; marketValue: string }> = []
       for (const p of rawPositions) {
         unrealizedPnL = unrealizedPnL.plus(new Decimal(String(p.unrealizedPnl ?? 0)))
         realizedPnL = realizedPnL.plus(new Decimal(String((p as unknown as Record<string, unknown>).realizedPnl ?? 0)))
-
-        const contracts = new Decimal(String(p.contracts ?? 0)).abs()
-        const contractSize = new Decimal(String(p.contractSize ?? 1))
-        const quantity = contracts.mul(contractSize)
-        const markPrice = new Decimal(String(p.markPrice ?? 0))
-        const side: 'long' | 'short' = p.side === 'short' ? 'short' : 'long'
-        aggregateInputs.push({ side, marketValue: quantity.mul(markPrice).toString() })
       }
 
-      // Fold spot holdings (BTC/ETH/etc balances) into position value.
-      // They behave like long positions — capital converted from cash into
-      // an asset — so they count toward netLiquidation, not totalCashValue.
+      // Spot holdings (BTC/ETH/etc balances priced at market).
+      // These ARE the equity — capital converted from stablecoin into an asset.
       const spotHoldings = await this.fetchSpotHoldings(balance)
+      let spotValue = new Decimal(0)
       for (const sp of spotHoldings) {
-        aggregateInputs.push({ side: 'long', marketValue: sp.marketValue })
+        spotValue = spotValue.plus(new Decimal(sp.marketValue))
       }
 
-      const { netLiquidation } = aggregateAccountFromPositions(free, aggregateInputs)
+      // NLV = total stablecoin balance (free + locked margin) + derivative PnL + spot asset value
+      const netLiquidation = free.plus(used).plus(unrealizedPnL).plus(spotValue)
 
       return {
         baseCurrency: 'USD',
