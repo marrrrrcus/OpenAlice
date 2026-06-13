@@ -105,13 +105,16 @@ export interface MatchedNews {
   classification: NewsClassification
 }
 
-export function buildNewsAlert(matches: MatchedNews[]): string {
+export function buildNewsAlert(matches: MatchedNews[], overflow = 0): string {
   const lines = matches.map((m) => {
     const source = m.item.metadata['source'] ?? '?'
     const link = m.item.metadata['link']
     const tail = link ? `\n  ${link}` : ''
     return `· [${source}] ${m.item.title}（命中：${m.classification.reason}）${tail}`
   })
+  // Overflow items aren't dropped — they ride the next tick. The note is
+  // just so a capped burst doesn't look like it silently swallowed news.
+  if (overflow > 0) lines.push(`…另有 ${overflow} 條，下輪補送`)
   return ['📰 新聞警示', ...lines].join('\n')
 }
 
@@ -184,22 +187,25 @@ export function createNewsAlert(opts: NewsAlertOpts): NewsAlert {
       return
     }
 
+    // Collect matches WITHOUT deduping yet — we only mark as alerted what
+    // we actually deliver, so an over-cap overflow isn't silently lost.
     const matches: MatchedNews[] = []
     for (const item of items) {
       const key = newsItemKey(item)
-      if (seen.has(key)) continue // already alerted (or marked) — skip
+      if (seen.has(key)) continue // already alerted on a prior tick — skip
       const classification = classifyNewsItem(item.title, item.content, rules)
-      if (classification.matched) {
-        matches.push({ item, classification })
-        seen.add(key)
-        state.alertedKeys.push(key)
-      }
+      if (classification.matched) matches.push({ item, classification })
     }
 
     if (matches.length > 0) {
-      // Cap per push so a burst doesn't produce a wall of text.
+      // Cap per push so a burst doesn't produce a wall of text. Only the
+      // delivered items get deduped; any overflow stays un-marked and is
+      // picked up on the next tick (still inside the lookback window), so
+      // nothing is dropped — it's just spread across pushes.
       const capped = matches.slice(0, config.maxPerAlert)
-      await connectorCenter.notify(buildNewsAlert(capped), { source: 'news-alert', priority: 'high' })
+      const overflow = matches.length - capped.length
+      await connectorCenter.notify(buildNewsAlert(capped, overflow), { source: 'news-alert', priority: 'high' })
+      for (const m of capped) state.alertedKeys.push(newsItemKey(m.item))
     }
 
     // Bound the dedup set — keep the most recent N keys.

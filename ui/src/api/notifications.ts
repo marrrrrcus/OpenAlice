@@ -1,6 +1,7 @@
 import { fetchJson } from './client'
 
-export type NotificationSource = 'heartbeat' | 'cron' | 'manual' | 'task'
+// Keep in sync with the backend union in src/core/notifications-store.ts.
+export type NotificationSource = 'heartbeat' | 'cron' | 'manual' | 'task' | 'market-report' | 'account-report' | 'news-alert'
 
 export interface NotificationEntry {
   id: string

@@ -132,6 +132,29 @@ describe('createNewsAlert — module tick (dedup + push)', () => {
     expect(pushed).toHaveLength(1)
   })
 
+  it('over-cap overflow is NOT silently lost — capped sent now, rest next tick', async () => {
+    // 6 matches, cap 2. First tick sends 2 + a "+N" note and dedups ONLY
+    // those 2. The other 4 stay un-marked and are delivered across the
+    // following ticks (still inside the lookback window) — nothing dropped.
+    const pushedTexts: string[] = []
+    const six = Array.from({ length: 6 }, (_, i) => item(`Protocol ${i} hit by hack`, { link: `http://h${i}` }))
+    const newsSource = { getNewsV2: async () => six }
+    const connectorCenter = { notify: async (text: string) => { pushedTexts.push(text); return {} as any } } as any
+
+    const na = createNewsAlert({ config: baseConfig({ enabled: false, maxPerAlert: 2 }), newsSource, connectorCenter })
+    await na.start()
+    await na.runNow() // sends 2, notes "+4"
+    await na.runNow() // sends next 2
+    await na.runNow() // sends last 2
+    na.stop()
+
+    expect(pushedTexts).toHaveLength(3)
+    expect(pushedTexts[0]).toContain('另有 4 條')
+    // Every one of the 6 distinct headlines was delivered exactly once.
+    const allText = pushedTexts.join('\n')
+    for (let i = 0; i < 6; i++) expect(allText).toContain(`Protocol ${i} hit by hack`)
+  })
+
   it('does not push when nothing matches', async () => {
     const pushed: string[] = []
     const newsSource = { getNewsV2: async () => [item('Quiet day in crypto, prices flat')] }

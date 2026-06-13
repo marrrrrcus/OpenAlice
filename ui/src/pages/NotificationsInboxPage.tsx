@@ -9,6 +9,9 @@ const SOURCE_COLORS: Record<NotificationSource, string> = {
   cron: 'bg-accent/15 text-accent',
   task: 'bg-green/15 text-green',
   manual: 'bg-amber-500/15 text-amber-400',
+  'market-report': 'bg-blue-500/15 text-blue-400',
+  'account-report': 'bg-red-500/15 text-red-400',
+  'news-alert': 'bg-cyan-500/15 text-cyan-400',
 }
 
 interface NotificationsInboxPageProps {
