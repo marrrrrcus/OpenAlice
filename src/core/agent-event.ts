@@ -132,6 +132,7 @@ const SourceUnion = Type.Union([
   Type.Literal('manual'),
   Type.Literal('market-report'),
   Type.Literal('account-report'),
+  Type.Literal('news-alert'),
 ])
 
 const AgentWorkRequestedSchema = Type.Object({

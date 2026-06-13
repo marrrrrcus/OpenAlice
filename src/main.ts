@@ -51,6 +51,7 @@ import { createCronEngine, createCronListener, createCronTools } from './task/cr
 import { createHeartbeat } from './task/heartbeat/index.js'
 import { createMarketReport } from './task/market-report/index.js'
 import { createAccountReport } from './task/account-report/index.js'
+import { createNewsAlert } from './task/news-alert/index.js'
 import { createAutoTradingScheduler } from './domain/auto-trading/scheduler.js'
 import { createMetricsListener } from './task/metrics/index.js'
 import { createAgentWorkListener } from './core/agent-work-listener.js'
@@ -325,6 +326,18 @@ async function main() {
     console.log(`account-report: enabled (every ${config.accountReport.every}, summary every ${config.accountReport.summaryEvery})`)
   }
 
+  // ==================== News Alert (Pump-driven, deterministic, zero-AI) ====================
+
+  const newsAlert = createNewsAlert({
+    config: config.newsAlert,
+    newsSource: newsStore,
+    connectorCenter,
+  })
+  await newsAlert.start()
+  if (config.newsAlert.enabled) {
+    console.log(`news-alert: enabled (every ${config.newsAlert.every}, lookback ${config.newsAlert.lookback})`)
+  }
+
   // ==================== Auto-trading Scheduler (Pump-driven, Phase 1) ====================
 
   const autoTradingScheduler = createAutoTradingScheduler({
@@ -495,6 +508,7 @@ async function main() {
     heartbeat.stop()
     marketReport.stop()
     accountReport.stop()
+    newsAlert.stop()
     autoTradingScheduler.stop()
     metricsListener.stop()
     cronListener.stop()

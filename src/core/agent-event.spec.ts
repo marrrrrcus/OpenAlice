@@ -95,6 +95,13 @@ describe('validateEventPayload', () => {
     })).not.toThrow()
   })
 
+  it('should accept agent.work.requested from news-alert source', () => {
+    expect(() => validateEventPayload('agent.work.requested', {
+      source: 'news-alert',
+      prompt: 'breaking news',
+    })).not.toThrow()
+  })
+
   it('should reject agent.work.requested with unknown source', () => {
     expect(() => validateEventPayload('agent.work.requested', {
       source: 'bogus',

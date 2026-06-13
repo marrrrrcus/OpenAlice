@@ -9,22 +9,17 @@ the item when done — git log is the history.
 
 ## News alerting
 
-- [ ] News → TG push (`news-alert` task). Today the NewsCollector only
-      archives RSS into a 7-day store that Alice queries on demand — new
-      items never push proactively. Build a deterministic Pump task
-      (mirror market-report/account-report) over freshly-ingested items
-      with dedup (reuse NewsCollectorStore dedup key) and a TIERED keyword
-      filter to avoid spam:
-        - High-priority (direct force-push, no AI): hack, exploit,
-          liquidation, SEC, "ETF approval"/"ETF rejection", "Binance halt",
-          "OKX outage".
-        - Coin keywords only fire when co-occurring with a risk word
-          (e.g. BTC + ETF/SEC/hack/liquidation) — bare BTC/ETH match too
-          much.
-      Optional second layer: batch the non-keyword remainder through a
-      cheap model (Haiku) every ingest cycle to catch the "big thing that
-      didn't match a keyword", emitting at most one digest line. Keyword
-      hits stay zero-token; AI is the fallback, not the default.
+- [x] DONE — News → TG push keyword tier shipped as `src/task/news-alert/`
+      (Pump-driven, tiered keyword classifier, dedup, force-push). Live
+      calibration: ~12% of 24h headlines match (~7/day). Bare `SEC` and
+      `exploit` are the main over-matchers (catch regulatory opinion pieces
+      / scam warnings, not just market events) — tune the keyword lists in
+      data/config/news-alert.json after observing real alerts.
+- [ ] News → TG, AI-digest fallback layer (the deferred half). Batch the
+      NON-keyword-matching remainder each cycle through a cheap model
+      (Haiku) to catch a "big thing that matched no keyword", emitting at
+      most one digest line. Keyword hits stay zero-token; AI is the
+      fallback, not the default. Gate behind a config flag (default off).
 
 ## Account monitoring
 

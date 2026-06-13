@@ -363,6 +363,46 @@ export const accountReportSchema = z.object({
 
 export type AccountReportConfig = z.infer<typeof accountReportSchema>
 
+/**
+ * Deterministic breaking-news monitor — polls the news archive and
+ * TG-pushes on a tiered keyword match (high-priority phrases push alone;
+ * coin tickers only alongside a risk word). Zero AI. See
+ * src/task/news-alert/.
+ */
+export const newsAlertSchema = z.object({
+  enabled: z.boolean().default(false),
+  every: z.string().default('10m'),
+  /** Query window each tick — slightly wider than `every` to avoid gaps;
+   *  dedup by item key prevents re-alerting lingering headlines. */
+  lookback: z.string().default('30m'),
+  keywords: z.object({
+    /** Phrases that push on their own. */
+    highPriority: z.array(z.string()).default([
+      'hack', 'exploit', 'liquidation', 'SEC',
+      'ETF approval', 'ETF rejection', 'Binance halt', 'OKX outage',
+    ]),
+    /** Words that arm a coin ticker (must co-occur for a coin match). */
+    riskWords: z.array(z.string()).default([
+      'ETF', 'SEC', 'hack', 'exploit', 'liquidation', 'lawsuit', 'ban', 'halt', 'outage', 'delist',
+    ]),
+    /** Coin tickers / names — fire only alongside a risk word. */
+    coinWords: z.array(z.string()).default([
+      'BTC', 'bitcoin', 'ETH', 'ethereum', 'SOL', 'solana',
+    ]),
+  }).default({
+    highPriority: ['hack', 'exploit', 'liquidation', 'SEC', 'ETF approval', 'ETF rejection', 'Binance halt', 'OKX outage'],
+    riskWords: ['ETF', 'SEC', 'hack', 'exploit', 'liquidation', 'lawsuit', 'ban', 'halt', 'outage', 'delist'],
+    coinWords: ['BTC', 'bitcoin', 'ETH', 'ethereum', 'SOL', 'solana'],
+  }),
+  /** Max items per pushed alert (a burst is capped, not a wall of text). */
+  maxPerAlert: z.number().int().positive().default(5),
+  /** Bound on the persisted dedup set (most-recent keys kept). */
+  maxDedupKeys: z.number().int().positive().default(1000),
+  statePath: z.string().default('data/news-alert-state.json'),
+})
+
+export type NewsAlertConfig = z.infer<typeof newsAlertSchema>
+
 export const toolsSchema = z.object({
   /** Tool names that are disabled. Tools not listed are enabled by default. */
   disabled: z.array(z.string()).default([]),
@@ -457,6 +497,7 @@ export type Config = {
   autoTrading: AutoTradingConfig
   marketReport: MarketReportConfig
   accountReport: AccountReportConfig
+  newsAlert: NewsAlertConfig
   mcp: z.infer<typeof mcpSchema>
   connectors: z.infer<typeof connectorsSchema>
   news: z.infer<typeof newsCollectorSchema>
@@ -499,7 +540,7 @@ export async function loadConfig(): Promise<Config> {
   // is pending. See src/migrations/INDEX.md for the full list.
   await runMigrations()
 
-  const files = ['engine.json', 'agent.json', 'crypto.json', 'securities.json', 'market-data.json', 'compaction.json', 'ai-provider-manager.json', 'heartbeat.json', 'snapshot.json', 'auto-trading.json', 'market-report.json', 'account-report.json', 'mcp.json', 'connectors.json', 'news.json', 'tools.json', 'webhook.json'] as const
+  const files = ['engine.json', 'agent.json', 'crypto.json', 'securities.json', 'market-data.json', 'compaction.json', 'ai-provider-manager.json', 'heartbeat.json', 'snapshot.json', 'auto-trading.json', 'market-report.json', 'account-report.json', 'news-alert.json', 'mcp.json', 'connectors.json', 'news.json', 'tools.json', 'webhook.json'] as const
   const raws = await Promise.all(files.map((f) => loadJsonFile(f)))
 
   const config: Config = {
@@ -515,11 +556,12 @@ export async function loadConfig(): Promise<Config> {
     autoTrading:   await parseAndSeed(files[9], autoTradingSchema, raws[9]),
     marketReport:  await parseAndSeed(files[10], marketReportSchema, raws[10]),
     accountReport: await parseAndSeed(files[11], accountReportSchema, raws[11]),
-    mcp:           await parseAndSeed(files[12], mcpSchema, raws[12]),
-    connectors:    await parseAndSeed(files[13], connectorsSchema, raws[13]),
-    news:          await parseAndSeed(files[14], newsCollectorSchema, raws[14]),
-    tools:         await parseAndSeed(files[15], toolsSchema, raws[15]),
-    webhook:       await parseAndSeed(files[16], webhookSchema, raws[16]),
+    newsAlert:     await parseAndSeed(files[12], newsAlertSchema, raws[12]),
+    mcp:           await parseAndSeed(files[13], mcpSchema, raws[13]),
+    connectors:    await parseAndSeed(files[14], connectorsSchema, raws[14]),
+    news:          await parseAndSeed(files[15], newsCollectorSchema, raws[15]),
+    tools:         await parseAndSeed(files[16], toolsSchema, raws[16]),
+    webhook:       await parseAndSeed(files[17], webhookSchema, raws[17]),
   }
 
   // Spawn-time-fixed channel: when guardian (Electron main) spawns the
@@ -1017,6 +1059,7 @@ const sectionSchemas: Record<ConfigSection, z.ZodTypeAny> = {
   autoTrading: autoTradingSchema,
   marketReport: marketReportSchema,
   accountReport: accountReportSchema,
+  newsAlert: newsAlertSchema,
   mcp: mcpSchema,
   connectors: connectorsSchema,
   news: newsCollectorSchema,
@@ -1037,6 +1080,7 @@ const sectionFiles: Record<ConfigSection, string> = {
   autoTrading: 'auto-trading.json',
   marketReport: 'market-report.json',
   accountReport: 'account-report.json',
+  newsAlert: 'news-alert.json',
   mcp: 'mcp.json',
   connectors: 'connectors.json',
   news: 'news.json',
