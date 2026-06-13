@@ -6,22 +6,57 @@ File-driven AI trading agent. All state (sessions, config, logs) stored as files
 
 ```bash
 pnpm install
-pnpm dev        # Dev mode (Guardian: UI→http://localhost:5173, Alice→47331, MCP→47332)
-pnpm build      # Production build (backend + UI)
-pnpm test       # Vitest
-pnpm test:e2e   # e2e test
+pnpm dev          # Dev: Guardian spawns UTA (47333) + Alice (47331) + Vite (5173)
+pnpm build        # Production: turbo (packages + UI + services/uta) + tsup (Alice)
+pnpm test         # Vitest across the monorepo (src/, packages/, services/, ui/)
+```
+
+Less-common commands:
+
+```bash
+pnpm test:watch       # Vitest watch mode
+pnpm test:e2e         # End-to-end suite (separate config)
+pnpm test:bbProvider  # OpenBB provider integration suite
+pnpm start            # Run the built Alice bundle (dist/main.js)
+pnpm electron:dev     # Electron shell over the built bundle
+pnpm build:migration-index  # Regenerate src/migrations/INDEX.md
 ```
 
 ### Pre-commit Verification
 
-Always run these checks before committing:
+The monorepo has four typecheck scopes; the root tsc command only covers
+Alice's `src/`. Each scope has a different reason to exist; run the ones
+your change actually touched.
 
 ```bash
-npx tsc --noEmit   # Type check (catches errors pnpm build misses)
-pnpm test           # Unit tests
+# Alice src/ — always run
+npx tsc --noEmit
+
+# UI strict types (only if you touched ui/)
+cd ui && npx tsc -b && cd ..
+
+# A workspace package (only if you touched packages/<pkg>)
+pnpm -F @traderalice/<pkg> typecheck
+
+# Behavior across the whole monorepo — always run
+pnpm test
 ```
 
-`pnpm build` uses tsup which is lenient — `tsc --noEmit` catches strict type errors that tsup ignores.
+Notes:
+
+- **`pnpm build` runs lenient tsup** for the Alice bundle and proper
+  `tsc -b` for the UI. So `pnpm build` catches UI type errors but not
+  Alice's; that's why `npx tsc --noEmit` from root is the canonical
+  Alice strict-check.
+- **`pnpm test` covers all `*.spec.ts` under `src/`, `packages/`,
+  `services/`, and (via the jsdom project) `ui/`** — Vitest's `projects`
+  config does the routing. But Vitest transpiles via esbuild, which does
+  NOT enforce strict types. Tests catch behavior, not type drift.
+- **`services/uta` standalone `pnpm -F @traderalice/uta-service typecheck`
+  currently has known errors** tracked in
+  [ANG-65](https://linear.app/angelkawaii/issue/ANG-65/) — root cause is
+  ctx-type leak from Alice's `EngineContext` into UTA's route handlers.
+  Don't run it as a gate until that's fixed.
 
 ### Cross-platform note
 
@@ -39,22 +74,40 @@ wiring. When working on one of these, read its guide first:
   list of files to touch for each kind of change, plus a "common pitfalls"
   section for the kinds of things AI sessions have historically half-done.
 
-## Working with TODO.md
+## Surfacing future work — Linear, not TODO.md
 
-`TODO.md` at the repo root is the running backlog — deferred work, known
-bugs, security gaps, and design items sitting in the on-deck circle.
-Unfinished items there compound over time if they're forgotten.
+When a session notices something worth fixing later but **out of scope
+for the current change**, file a Linear issue. Don't add to a
+repo-internal TODO file (the old `TODO.md` was retired; it accumulated
+~550 lines of mixed-quality entries that no one read).
 
-- **Before starting non-trivial work**, scan `TODO.md` for related entries.
-  If there's one, either (a) handle it as part of the current change, or
-  (b) confirm with the user why you're skipping it so it doesn't drift.
-- **When finishing a change**, if it resolves a TODO entry, delete that
-  entry in the same commit (git log is the history — the file is a
-  future-looking list, not an audit trail).
-- **When a new item surfaces mid-work** — a known-broken behaviour you
-  don't have scope to fix, a security concern, a half-done UI surface —
-  add it with enough context (symptom + suspected location) that the
-  next person can start without re-derivation.
+**Where to file:**
+
+- Team: `Angelkawaii` (key `ANG`)
+- Project: `TODO from AI Code` —
+  https://linear.app/angelkawaii/project/todo-from-ai-code-0f966d818f84
+
+**What to file:** known-broken behavior, structural findings (wrong
+primary key, missing field projection, etc.), half-done UI surfaces,
+security concerns flagged during review.
+
+**What an issue should contain:**
+
+- **Symptom** — what's wrong or missing
+- **Suspected location** — file + rough line range, so the next person
+  doesn't have to re-derive
+- **Why deferred** — what blocked handling it inline
+- **Cross-references** — related PRs, commits, other issues
+
+Write each issue as if handing context to a stranger six months from
+now who has access to git but not to your reasoning.
+
+**What does NOT go here:** product feature requests (those live in the
+user's own product-planning surface), generic tech debt with no concrete
+trigger, items already covered by an open PR.
+
+If the session itself is genuinely going to handle the finding in the
+current PR, just handle it — no issue needed.
 
 ## Working with README.md
 
@@ -107,86 +160,201 @@ migration framework at `src/migrations/`, not ad-hoc startup code.
 
 ## Project Structure
 
+OpenAlice is a pnpm monorepo. Two long-running processes (Alice + UTA),
+supervised by Guardian, sharing one `data/` volume. Filesystem layout
+roughly mirrors that split — `src/` is Alice, `services/uta/` is UTA,
+`packages/` is what they wire across.
+
 ```
-src/
+src/                           # Alice process — agent runtime
 ├── main.ts                    # Composition root
-├── core/
-│   ├── agent-center.ts        # Top-level AI orchestration, owns GenerateRouter
-│   ├── ai-provider-manager.ts # GenerateRouter + StreamableResult + AskOptions
-│   ├── tool-center.ts         # Centralized tool registry (Vercel + MCP export)
-│   ├── session.ts             # JSONL session store
-│   ├── compaction.ts          # Auto-summarize long context windows
-│   ├── config.ts              # Zod-validated config loader (generic account schema with brokerConfig)
-│   ├── ai-config.ts           # Runtime AI provider selection
-│   ├── event-log.ts           # Append-only JSONL event log
-│   ├── connector-center.ts    # ConnectorCenter — push delivery + last-interacted tracking
-│   ├── async-channel.ts       # AsyncChannel for streaming provider events to SSE
-│   ├── model-factory.ts       # Model instance factory for Vercel AI SDK
-│   ├── media.ts               # MediaAttachment extraction
-│   ├── media-store.ts         # Media file persistence
-│   └── types.ts               # Plugin, EngineContext interfaces
-├── ai-providers/
-│   ├── vercel-ai-sdk/         # Vercel AI SDK ToolLoopAgent
-│   └── agent-sdk/             # Claude backend (@anthropic-ai/claude-agent-sdk, supports OAuth + API key)
-├── domain/
-│   ├── market-data/           # Structured data layer (typebb in-process + OpenBB API remote)
-│   ├── trading/               # Unified multi-account trading, guard pipeline, git-like commits
-│   │   ├── account-manager.ts # UTA lifecycle (init, reconnect, enable/disable) + registry
-│   │   ├── git-persistence.ts # Git state load/save
-│   │   └── brokers/
-│   │       ├── registry.ts    # Broker self-registration (configSchema + configFields + fromConfig)
-│   │       ├── alpaca/        # Alpaca (US equities)
-│   │       ├── ccxt/          # CCXT (100+ crypto exchanges)
-│   │       ├── ibkr/          # Interactive Brokers (TWS/Gateway)
-│   │       └── mock/          # In-memory test broker
-│   ├── analysis/              # Indicators, technical analysis, sandbox
+├── core/                      # Orchestration primitives. AgentCenter +
+│                              #   GenerateRouter (provider selection) +
+│                              #   ToolCenter + ConnectorCenter + session
+│                              #   store + event-log + listener/producer.
+│                              #   Workspace-scoped tool registry lives
+│                              #   here too (workspace-tool-center.ts).
+├── ai-providers/              # AI backend implementations.
+│   ├── agent-sdk/             # Claude via @anthropic-ai/claude-agent-sdk
+│   ├── codex/                 # OpenAI Codex CLI / API
+│   ├── vercel-ai-sdk/         # Vercel AI SDK (Anthropic/OpenAI/Google)
+│   ├── mock/                  # Test provider
+│   ├── presets.ts             # Preset catalog (profile schemas)
+│   └── sdk-adapters.ts        # Provider → adapter resolution
+├── domain/                    # Non-broker, non-state domains.
+│   ├── market-data/           # typebb in-process + OpenBB API remote
+│   ├── analysis/              # Indicators / TA / sandbox
 │   ├── news/                  # RSS collector + archive search
-│   ├── brain/                 # Cognitive state (memory, emotion)
 │   └── thinking/              # Safe expression evaluator
-├── tool/                      # AI tool definitions — thin bridge from domain to ToolCenter
-│   ├── trading.ts             # Trading tools (delegates to domain/trading)
-│   ├── equity.ts              # Equity fundamental tools (uses domain/market-data)
-│   ├── market.ts              # Symbol search tools (uses domain/market-data)
-│   ├── analysis.ts            # Indicator calculation tools (uses domain/analysis)
-│   ├── news.ts                # News archive tools (uses domain/news)
-│   └── thinking.ts            # Reasoning tools (uses domain/thinking)
-├── connectors/
-│   ├── web/                   # Web UI (Hono, SSE streaming, sub-channels)
+│                              # NOTE: domain/trading was ejected to
+│                              # services/uta. domain/brain was retired
+│                              # (migration 0006).
+├── tool/                      # AI tool definitions — thin bridges from
+│                              # domain → ToolCenter (trading, equity,
+│                              # market, analysis, news, economy,
+│                              # thinking, session, inbox-push,
+│                              # notify-user). trading.ts is now a thin
+│                              # HTTP-SDK wrapper, not a domain caller.
+├── workspaces/                # Workspace launcher (cost-curve-inversion
+│                              # mechanism, see Key Architecture). Pool
+│                              # of PTY sessions, scrollback store,
+│                              # template registry, CLI adapters, agent
+│                              # probe, file/git services for in-workspace
+│                              # ops, persistent-session reattach.
+│   ├── adapters/              # claude.ts / codex.ts / shell.ts
+│   └── templates/             # auto-quant, chat, finance-research
+├── services/                  # Cross-cutting services Alice itself owns.
+│   ├── auth/                  # Admin-token store + session-store
+│   ├── uta-client/            # SDK adapters mirroring UTA's in-process
+│                              #   shape: UTAManagerSDK + UTAAccountSDK
+│   └── uta-supervisor/        # health probe + restart-trigger
+│                              #   (flag-file protocol to Guardian)
+├── connectors/                # Push channels.
+│   ├── web/                   # Web UI (Hono, SSE, sub-channels)
 │   ├── telegram/              # Telegram bot (grammY)
-│   └── mcp-ask/               # MCP Ask connector
-├── plugins/
-│   └── mcp.ts                 # MCP protocol server
-├── task/
-│   ├── cron/                  # Cron scheduling
-│   └── heartbeat/             # Periodic heartbeat
-└── skills/                    # Agent skill definitions
+│   ├── mcp-ask/               # MCP Ask connector
+│   └── mock/                  # Test connector
+├── server/                    # In-process servers Alice exposes.
+│   ├── mcp.ts                 # MCP protocol server
+│   └── opentypebb.ts          # Mounted market-data routes
+├── webui/                     # Hono web plugin internals.
+│   ├── plugin.ts              # WebPlugin (bootstrap, mount order)
+│   ├── middleware/            # auth.ts (admin-token gate)
+│   ├── routes/                # ~23 route files; trading routes are
+│                              #   BFF-proxied to UTA, not handled here
+│   └── workspaces-ws.ts       # PTY WebSocket upgrade + auth gate
+├── migrations/                # Versioned data migrations (0001–0006).
+│                              # See `## Migrations` for the rule.
+└── task/                      # cron, heartbeat, metrics
+
+services/uta/                  # UTA process — broker carrier
+├── src/main.ts                # UTA bootstrap
+├── src/http/                  # routes-trading.ts + routes-simulator.ts
+│                              #   (the 24 trading routes Alice's BFF
+│                              #   forwards to)
+└── src/domain/trading/        # ALL broker / git-state / FX / snapshot
+                               #   logic lives here, not in Alice.
+                               #   brokers/ contains alpaca, ccxt, ibkr,
+                               #   longbridge, mock, others.
+
+packages/                      # Shared workspace packages.
+├── uta-protocol/              # @traderalice/uta-protocol — wire types
+│                              #   + zod schemas + client SDK. Alice and
+│                              #   UTA both depend on this; the only
+│                              #   shape that crosses the process line.
+├── ibkr/                      # @traderalice/ibkr — IBKR TWS port
+│                              #   (UTA-owned; do not import from src/)
+└── opentypebb/                # @traderalice/opentypebb — OpenBB TS port
+
+scripts/guardian/              # L2 process supervisor.
+├── dev.ts                     # `pnpm dev` entry — spawns UTA → Alice → Vite
+├── prod.mjs                   # Docker entry, tini-supervised
+└── shared.ts                  # Port probe, flag-watch, cascade shutdown
+
+ui/                            # React frontend (Vite). auth/ holds the
+                               # login gate; lives outside `src/` because
+                               # it ships separately.
+
+data/                          # All persistent state (gitignored).
+                               # config/, sessions/, trading/, control/
+                               # (UTA restart flag), backups, etc.
 ```
 
 ## Key Architecture
 
-### AgentCenter → GenerateRouter → GenerateProvider
+### Workspaces — the cost-curve-inversion mechanism
 
-Two layers (Engine was removed):
+`src/workspaces/` is OpenAlice's most important architectural surface and
+the reason recent feature work has been compounding cheaply. A workspace
+is a managed, persistent shell session (PTY-backed, scrollback-replayed,
+template-bootstrapped) inside which an AI agent runs an entire capability
+end-to-end — research, quant iteration, auto-galgame-style harnesses,
+etc. The launcher itself stays small; new capabilities ship as new
+templates and satellite repos rather than new code paths inside Alice.
 
-1. **AgentCenter** (`core/agent-center.ts`) — top-level orchestration. Manages sessions, compaction, and routes calls through GenerateRouter. Exposes `ask()` (stateless) and `askWithSession()` (with history).
+Why this layer matters more than the rest:
 
-2. **GenerateRouter** (`core/ai-provider-manager.ts`) — reads `ai-provider.json` on each call, resolves to active provider. Two backends:
-   - Agent SDK (`inputKind: 'text'`) — Claude via @anthropic-ai/claude-agent-sdk, tools via in-process MCP
-   - Vercel AI SDK (`inputKind: 'messages'`) — direct API calls, tools via Vercel tool system
+- **Linear complexity, exponential value.** Each new capability is an
+  isolated workspace; the only thing Alice's core has to grow is the
+  scheduler. The dead-end alternative — adding workflow abstractions for
+  every capability inside `src/` — produced exponential complexity for
+  linear value, and is the reason the old chat-hook layer burned ~50% of
+  development time before this pivot.
+- **Sandboxable.** Workspaces map cleanly to cloud sandboxes and to
+  parallel agents; you can run 20 of them.
+- **Boundary discipline.** A workspace is the natural unit at which to
+  decide "AI handles this autonomously" vs "human must approve."
 
-**AIProvider interface**: `ask(prompt)` for one-shot, `generate(input, opts)` for streaming `ProviderEvent` (tool_use / tool_result / text / done). Optional `compact()` for provider-native compaction.
+Practical implication: when adding agent-facing capability, default to
+**new template / new satellite repo**, not new `src/` modules. See
+memory `feedback_workspace_as_capability_boundary` and
+`project_satellite_repo_ecosystem`.
 
-**StreamableResult**: dual interface — `PromiseLike` (await for result) + `AsyncIterable` (for-await for streaming). Multiple consumers each get independent cursors.
+Load-bearing files: `service.ts` (lifecycle), `session-pool.ts` (PTYs),
+`session-registry.ts` (persistence), `scrollback-store.ts` (replay),
+`template-registry.ts` (templates), `adapters/{claude,codex,shell}.ts`
+(CLI wiring), `protocol.ts` (UI ↔ workspace wire shape).
 
-Per-request provider and model overrides via `AskOptions.provider` and `AskOptions.vercelAiSdk` / `AskOptions.agentSdk`.
+### Alice ↔ UTA split
+
+The broker domain runs as a separate process. Alice owns the agent
+runtime; UTA owns broker connections, git-like trade approval state, FX,
+snapshots, and all `IBroker` implementations. They communicate over HTTP
+via `@traderalice/uta-protocol` (the only shape that crosses the line).
+Today they're co-located on `127.0.0.1`; the protocol exists so UTA can
+detach to a separate device (hardware-wallet-style) without rewriting
+either side.
+
+Concretely:
+
+- `services/uta/src/domain/trading/` is the only place broker code lives.
+- `src/services/uta-client/` (UTAManagerSDK / UTAAccountSDK) mirrors UTA's
+  in-process interfaces, so the tool layer (`tool/trading.ts`) reads as
+  if it were calling local code.
+- Alice's `/api/trading/*` routes are BFF-proxied to UTA.
+- Config changes that affect UTA go through a flag-file restart protocol
+  (`data/control/restart-uta.flag`, watched by Guardian). UTA itself has
+  no in-process hot-reload — startup path == restart path.
+
+### AI provider layer (in flight — calling shape will change)
+
+> ⚠️ This section describes the current wiring, not the destination.
+> The provider routing layer is destined for redesign — the cross-shape
+> assumptions between Anthropic-API-shape and OpenAI-API-shape backends
+> are leaking, and the registry pattern needs rework. Before adding a
+> new provider or changing routing behavior, **check with the user
+> first.** See memory `feedback_no_bandaid_on_shape_mismatch`.
+
+Today:
+
+- **AgentCenter** (`core/agent-center.ts`) — top-level orchestration.
+  Manages sessions, compaction, routes through GenerateRouter. Exposes
+  `ask()` (stateless) and `askWithSession()` (with history).
+- **GenerateRouter** (`core/ai-provider-manager.ts`) — reads
+  `ai-provider.json`, resolves to the active provider. Four backends
+  registered today: `agent-sdk` (Claude), `codex` (OpenAI Codex),
+  `vercel-ai-sdk` (Anthropic / OpenAI / Google), `mock`.
+- **AIProvider interface**: `ask(prompt)` one-shot, `generate(input, opts)`
+  streams `ProviderEvent`s (`tool_use` / `tool_result` / `text` / `done`).
+  Optional `compact()` for provider-native compaction.
+- **StreamableResult**: dual interface — `PromiseLike` (await for result)
+  + `AsyncIterable` (for-await for streaming). Multiple consumers each
+  get independent cursors.
+- Per-request overrides via `AskOptions.provider` and the per-backend
+  option blocks (`AskOptions.vercelAiSdk`, `AskOptions.agentSdk`, etc.).
 
 ### ConnectorCenter
 
-`connector-center.ts` manages push channels (Web, Telegram, MCP Ask). Tracks last-interacted channel for delivery routing.
+`core/connector-center.ts` manages push channels (Web, Telegram,
+MCP Ask). Tracks last-interacted channel for delivery routing.
 
 ### ToolCenter
 
-Centralized registry. `tool/` files register tools via `ToolCenter.register()`, exports in Vercel and MCP formats. Decoupled from AgentCenter.
+Centralized registry. Files under `src/tool/` register tools via
+`ToolCenter.register()`; exports in both Vercel-tool and MCP shapes.
+Decoupled from AgentCenter. Workspace-scoped tool registration goes
+through `core/workspace-tool-center.ts` (per-workspace MCP exposure
+without polluting the global tool list).
 
 ## Conventions
 
@@ -199,190 +367,158 @@ Centralized registry. `tool/` files register tools via `ToolCenter.register()`, 
 ## Git Workflow
 
 - `origin` = `TraderAlice/OpenAlice` (production)
-- `dev` branch for all development, `master` only via PR
-- **Never** force push master, **never** push `archive/dev` (contains old API keys)
-- CLAUDE.md is **committed to the repo and publicly visible** — never put API keys, personal paths, or sensitive information in it
+- `master` is the only long-living branch. **All PRs target master.**
+- `local` is the local-collaboration branch (see below). It's a regular
+  feature branch in shape, but pinned to a fixed name so multiple local
+  AI sessions sharing one git worktree don't fight over checkouts.
+- `dev` is **retired** — it accumulated a `dev`-specific paradigm from
+  the rolling-PR era. Don't open new work on it; don't delete it either.
+  Historical commits stay where they are.
+- **Never** force push master, **never** push `archive/dev` (contains
+  old API keys).
+- CLAUDE.md is **committed to the repo and publicly visible** — never
+  put API keys, personal paths, or sensitive information in it.
 
-### Branch Safety Rules
+### Two collaboration modes — pick the right one first
 
-- **NEVER delete `dev` or `master` branches** — both are protected on GitHub (`allow_deletions: false`, `allow_force_pushes: false`)
-- When merging PRs, **NEVER use `--delete-branch`** — it deletes the source branch and destroys commit history
-- When merging PRs, **prefer `--merge` over `--squash`** — squash destroys individual commit history. If the PR has clean, meaningful commits, merge them as-is
-- If squash is needed (messy history), do it — but never combine with `--delete-branch`
-- `archive/dev-pre-beta6` is a historical snapshot — do not modify or delete
-- **After merging a PR**, always `git pull origin master` to sync local master. Stale local master causes confusion about what's merged and what's not.
-- **Before creating a PR**, always `git fetch origin master` to check what's already merged. Use `git log --oneline origin/master..HEAD` to verify only the intended commits are ahead. Stale local refs cause PRs with wrong diff.
+The whole workflow forks on one question:
 
-### Rolling dev → master PR convention
+| Mode | Who's working on this branch | Where |
+|---|---|---|
+| **Solo branch** | One AI session, exclusively | Cloud sandbox, ephemeral remote agent, or any one-PR-at-a-time scenario |
+| **Shared branch** | Multiple AI sessions in the same git worktree | The user's local machine — one checkout, many concurrent AI sessions can't independently swap branches |
 
-Multiple Claude sessions hit `dev` in parallel; GitHub allows only **one
-open PR per (head, base) pair** anyway. So we keep a single rolling PR
-from `dev → master` and **append** to its body each session instead of
-opening fresh — otherwise each new PR loses the context of what other
-sessions did.
+The reason a shared branch exists at all: in one local worktree you can't
+have two AI sessions checking out different branches simultaneously
+without one of them yanking the working tree out from under the other.
+A pinned shared branch (`local`) sidesteps that — every local session
+lands on the same checkout.
 
-**Before opening a new PR, always check first:**
+Cloud is the default; multi-AI parallel work happens **in the cloud, not
+in local worktrees**. Spinning up extra local worktrees for parallelism
+costs more in `pnpm install` / `data/` duplication / port juggling than
+it saves. Hand parallel tracks off to cloud Claude sessions.
+
+### Branch Safety Rules (apply to both modes)
+
+- **Never commit directly to master.** If a session opens and finds
+  `HEAD` is master, that's the cue to ask "are we local or remote?"
+  before touching anything — see the open-of-session checklist below.
+- **NEVER delete `master`, `dev`, or `local` branches** — `master` and
+  `dev` are GitHub-protected (`allow_deletions: false`,
+  `allow_force_pushes: false`). `local` is conventionally permanent too.
+- When merging PRs, **NEVER use `--delete-branch`** — destroys source
+  branch history. The branch can stay; future tooling needs the SHAs.
+- **Prefer `--merge` over `--squash`** — squash flattens individual
+  commits. Squash only when the history is genuinely messy and even
+  then never combined with `--delete-branch`.
+- `archive/dev-pre-beta6` is a historical snapshot — do not modify or
+  delete.
+- **After merging a PR**, always `git fetch origin && git pull origin master`
+  on the source branch to sync. Stale local refs cause PRs with wrong diff.
+
+### Open-of-session checklist (every session, first action)
+
+Every session — local OR cloud — runs these three steps before touching
+code. They're the entire price you pay for not landing on stale or wrong
+state.
 
 ```bash
-gh pr list --base master --head dev --state open --json number,title,body
+git fetch origin
+git status                              # what branch are we on right now?
+git log --oneline origin/master..HEAD   # what's ahead of master?
 ```
 
-- **If a PR exists** → append your section to its body with
-  `gh pr edit <num> --body-file <(...)`. Don't open a new one.
-- **If none exists** → open with `gh pr create` using the template below.
+Then branch on the result:
 
-**PR body template:**
+1. **`HEAD` is `master`** — do NOT start work here. Ask the user:
+   *"Local or remote session? If local, do you want to work on `local`,
+   or branch off for a focused feature (`feat/<name>`)?"*
+   Wait for direction; create / switch only after.
+
+2. **`HEAD` is a `feat/<name>` (or similar solo-purpose branch)** —
+   this is the cloud / solo-AI case. Bring it up to date with master
+   so the eventual PR has a clean diff:
+   ```bash
+   git merge origin/master  # or rebase, if no one else is on this branch
+   ```
+   Then continue the work.
+
+3. **`HEAD` is `local`** — this is the shared local-collab branch.
+   First sync master in (because cloud sessions may have shipped while
+   you were away), THEN continue:
+   ```bash
+   git pull origin local
+   git merge origin/master
+   ```
+   If the merge conflicts, resolve before doing anything else — another
+   local session may be waiting for the working tree.
+
+4. **`HEAD` is `dev` or some other historical branch** — flag it to the
+   user, don't assume it's intentional. `dev` is retired; if a session
+   landed there it's likely an accidental hold-over from a previous flow.
+
+### Cloud / solo-AI sessions (the default)
+
+This is the multi-agent-concurrent path. Each cloud session gets its
+own branch, its own PR, its own review cycle.
+
+```bash
+# Branch from master — never from dev or local
+git fetch origin
+git checkout master
+git pull origin master
+git checkout -b feat/<short-desc>     # cloud Claude Code may auto-name
+                                      # claude/<desc>-XXXXX — that's fine too
+
+# ... do the work ...
+
+git push -u origin feat/<short-desc>
+gh pr create --base master --head feat/<short-desc> \
+  --title "<title>" --body-file <(...)
+```
+
+PR body is just the standard Summary + Test plan — there's no
+"per-session contributions" stack anymore because each PR is one
+session's worth of work, end to end.
 
 ```markdown
 ## Summary
-<rolling thematic summary — latest session may rewrite this when new
-work meaningfully shifts the PR's framing>
-
-## Per-session contributions
-### YYYY-MM-DD — <session theme, e.g. "Market workbench tradeable card">
-- What changed (1–3 bullets)
-- Why
-- Key commits: `<sha-short>`, `<sha-short>`
-
-### YYYY-MM-DD — <prior session theme>
-…(append on top, keep prior sessions verbatim — never edit other sessions' entries)…
-
-## Full commit log
-<output of: git log --oneline origin/master..HEAD>
-(regenerate from scratch on each body update)
+<what changed and why — 1–4 bullets, written for a 30-second director-review>
 
 ## Test plan
 - [ ] tsc --noEmit clean
 - [ ] pnpm test passes
-- [ ] (session-specific manual verifications)
+- [ ] (whatever manual verifications apply)
+
+## Boundary touch
+<flag if this PR touches trading / auth / broker credentials / migrations.
+Omit if none.>
 
 🤖 Generated with [Claude Code](https://claude.com/claude-code)
 ```
 
-**When you append:**
+After merge: `git checkout master && git pull origin master`. Don't
+keep working on the post-merge branch.
 
-1. Refresh the "Full commit log" section from `git log --oneline origin/master..HEAD`.
-2. Add your "Per-session contributions" entry on top of the list, with today's date.
-3. Don't edit other sessions' entries — that's their record.
-4. Update "Summary" only if your work actually changes the PR's framing
-   (e.g., what was a "frontend tweak" PR becomes a "frontend + new domain
-   service" PR after your work).
+### Local / shared `local` branch (the multi-AI-on-one-worktree exception)
 
-This keeps the PR description as a faithful audit trail across sessions,
-and lets reviewers see who-did-what without trawling the commit log alone.
-
-### Default vs. isolated branch — when to deviate from `dev`
-
-The default for any session is **work on `dev`** and let the rolling
-PR carry it to master. The exception is **invasive, long-running work
-that shouldn't share a branch with parallel sessions** — typically a
-refactor of shared types / cross-cutting infrastructure that, while
-in-flight, would force every other session to rebase against churn
-they don't have context for.
-
-Examples worth isolating: changing a base interface every broker
-implements; renaming or restructuring a module everyone imports from;
-multi-day schema migrations.
-Examples that stay on `dev`: any feature, any local fix, anything
-scoped to one subsystem.
-
-When isolation is the right call:
+When the user confirms a session is local and wants to work on `local`:
 
 ```bash
-# Branch from master (clean baseline, dev's churn won't bleed in)
+# First-time only, if `local` doesn't yet exist:
 git fetch origin
 git checkout master
 git pull origin master
-git checkout -b refactor/<short-name>
-
-# During the refactor, periodically rebase against master so the
-# eventual merge stays small. Skip dev — its session-by-session
-# churn is intentionally not part of the baseline you're testing
-# against.
-git fetch origin
-git rebase origin/master
-
-# When done, PR straight to master (NOT dev). The refactor is its own
-# coherent unit, reviewed end-to-end.
-git push -u origin refactor/<short-name>
-gh pr create --base master --head refactor/<short-name> ...
+git checkout -b local
+git push -u origin local
 ```
 
-**After the refactor merges**, dev needs to absorb the new master so
-in-flight sessions land on the new baseline:
+Subsequent local sessions: just `git checkout local` (open-of-session
+checklist already pulled origin and merged master).
 
-```bash
-git checkout dev
-git pull origin dev
-git fetch origin
-git merge origin/master
-git push origin dev
-```
+When `local` is ready to ship — either piecewise (one PR per coherent
+chunk, base `master`) or as a batch — that's a director decision, not a
+default. Ask the user before opening the PR.
 
-In-flight rolling-PR work then sees the refactor in their next pull
-and rebases naturally. Their diffs against the refreshed `dev` may
-need real fix-ups (that's the cost of an invasive refactor — and
-the reason you isolated it in the first place).
 
-**Decision rule for the next session that starts work:** if `master`
-is currently ahead of `dev`, do `git checkout dev && git merge origin/master`
-*before* starting any new feature work. Otherwise your new commits
-will land on a stale baseline.
-
-Common reasons `master` would be ahead of `dev`:
-- An invasive refactor branch just landed (above flow).
-- A Claude Code cloud session opened a `claude/<short-desc>-XXXXX`
-  branch and merged it straight to master without going through `dev`
-  — typically for a time-sensitive fix the cloud agent shipped while
-  the human wasn't around (see next subsection).
-
-When the side-channel was content-bearing (not just a refactor) **dev
-is genuinely behind master in code**, not just in merge-commit objects.
-Skipping the sync lands new dev commits on stale code.
-
-One quirk to recognize: a single `git merge origin/master` into dev
-often surfaces a Discord/webhook notification like *"N new commits on
-dev"* where N is much larger than what the side branch actually added.
-Most of those N are **historical PR-merge commits** that have been
-accumulating on master for weeks (each dev → master PR creates a
-merge commit that exists only on master). The sync drags them onto
-dev in one go. The webhook reports commit-object count, not
-content-delta. Expected, not a sign anything's broken.
-
-### Emergency hotfix via cloud `claude/*` side branch
-
-A Claude Code cloud session can open a branch named
-`claude/<short-desc>-XXXXX`, PR straight to master, and merge it
-without touching `dev`. This is the right move for **genuine
-emergencies** the user isn't around to handle on dev (a runtime
-error blocking users, a CORS misconfiguration, a hotfix that can't
-wait for the next dev → master cycle). The cloud session uses it
-because:
-
-- Cloud sessions don't see in-flight local dev state and shouldn't
-  destabilize it
-- The fix is small and reviewable in isolation
-- Waiting for the user to bounce dev for a hotfix is silly when the
-  cloud agent already has a working tree
-
-**What this means for the next local session:**
-
-1. `git fetch origin && git log --oneline origin/dev..origin/master`
-   shows commits master has that dev doesn't — if there's anything
-   from a `claude/*` branch, dev needs the sync.
-2. `git checkout dev && git merge origin/master && git push origin dev`
-   (clean FF in typical case).
-3. Resume normal work on dev.
-
-**What this means for the cloud session deciding whether to side-branch:**
-default to opening a dev → master PR like everyone else. Only branch
-straight to master for fixes that meet *both*: (a) production-impacting
-or user-blocking, and (b) sub-100-line scope reviewable end-to-end in
-one sitting. Anything bigger or speculative goes through dev.
-
-**Parallel work happens in the cloud, not in local worktrees.** For a
-project this size, spinning up multiple local worktrees costs more
-in `pnpm install` / `data/` copying / port juggling than it saves.
-Hand parallel tracks off to cloud Claude sessions instead — each
-gets its own sandbox, returns a PR, and doesn't touch the local
-working tree.
