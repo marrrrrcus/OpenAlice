@@ -53,6 +53,14 @@ Automation has two layers in OpenAlice. They're worth separating because each ev
 
 **Execution — *how* the trigger lands.** Today's heartbeat and cron jobs still use the pre-Workspace wiring: event → AgentCenter (the global chat) → AI run → optional `notify_user` → NotificationsStore → Connectors. That path is fine for "one-in, one-out" pings — heartbeat updates, scheduled market checks — and remains in production. The direction we're moving in: workspace-resident executions, where a scheduled event either fires a one-shot task inside a Workspace OR drives continued dialog on a Workspace's persistent Session. The scheduling layer above is shared either way.
 
+**Proactive monitoring & alerts.** Three deterministic, interval-driven monitors push alerts to you (primarily Telegram) without being asked — they replace prompt-driven "check X every N minutes" jobs that burned tokens on every tick. Genuine alerts force-push to Telegram even when it isn't your active channel; calm periods stay quiet (silence = nothing to report).
+
+- **Market** — BTC/ETH price + RSI(14), alerting on RSI crossing overbought/oversold or a price move past a threshold (the only monitor that uses AI, and only to write the summary once an event fires)
+- **Account** — your connected broker accounts (OKX, Binance, …): drawdown thresholds, near-liquidation distance, net-value moves, and position open/close. Fully program-driven — zero tokens. Risk events get `🚨`, informational ones `📊`
+- **News** — breaking-headline keyword alerts from the RSS archive, tiered so it doesn't spam on every coin mention
+
+See [docs/monitoring.md](docs/monitoring.md) for the full design (hysteresis, cold-start handling, force-push priority).
+
 ### Interface
 
 - **Web UI** — chat with SSE streaming, sub-channels, portfolio dashboard with equity curve, and full config management
@@ -456,6 +464,9 @@ All config lives in `data/config/` as JSON files with Zod validation. Missing fi
 | `tools.json` | Tool enable/disable configuration |
 | `market-data.json` | Data backend (`typebb-sdk` / `openbb-api`), per-asset-class providers, provider API keys, embedded HTTP server config |
 | `news.json` | RSS feeds, fetch interval, retention period |
+| `market-report.json` | Market monitor: symbols, RSI thresholds, price-move %, snapshot path ([docs/monitoring.md](docs/monitoring.md)) |
+| `account-report.json` | Account monitor: drawdown layers, liquidation safety %, NLV-move %, dust floor |
+| `news-alert.json` | News monitor: tiered keyword lists, lookback window, dedup bound |
 | `snapshot.json` | Account snapshot interval and retention |
 | `compaction.json` | Context window limits, auto-compaction thresholds |
 | `heartbeat.json` | Heartbeat enable/disable, interval, active hours |
