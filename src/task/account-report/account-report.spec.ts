@@ -136,6 +136,23 @@ describe('position open / close diff', () => {
     expect(r.events.map(e => e.kind)).toContain('position_closed')
     expect(r.events.find(e => e.kind === 'position_closed')?.detail).toContain('ETH/USDT:USDT')
   })
+
+  it('cold start (lastReportedNlv null) seeds positions WITHOUT firing open/close', () => {
+    // First-ever observation of an account: pre-existing positions must not
+    // be reported as "newly opened" (would re-spam on every Alice restart).
+    const coldState: AccountRiskState = { lastReportedNlv: null, knownPositions: [], positions: {} }
+    const r = detectAccountEvents(acc({ positions: [pos(), pos({ key: 'ETH/USDT:USDT', label: 'ETH/USDT:USDT' })] }), coldState, RULES)
+    expect(r.events.filter(e => e.kind === 'position_opened')).toEqual([])
+    expect(r.next.knownPositions).toEqual(['BTC/USDT:USDT', 'ETH/USDT:USDT']) // still seeded
+    expect(r.next.lastReportedNlv).toBe(2000) // anchored
+  })
+
+  it('cold start STILL fires drawdown — current risk surfaces even for non-new positions', () => {
+    const coldState: AccountRiskState = { lastReportedNlv: null, knownPositions: [], positions: {} }
+    const r = detectAccountEvents(acc({ positions: [pos({ unrealizedPnL: -400 })] }), coldState, RULES) // -20% → L2
+    expect(r.events.map(e => e.kind)).toContain('drawdown')
+    expect(r.events.filter(e => e.kind === 'position_opened')).toEqual([])
+  })
 })
 
 describe('NLV move', () => {

@@ -167,6 +167,15 @@ export function detectAccountEvents(
   const nextPositions: Record<string, PositionRiskState> = {}
   const currentKeys = obs.positions.map((p) => p.key)
 
+  // Cold start: the first time we ever observe an account, lastReportedNlv
+  // is null. The position-open/close diff and NLV-move are *change* events —
+  // firing them on first sight would report every pre-existing position as
+  // "newly opened" (spammy, and re-spams on every Alice restart). Suppress
+  // those on cold start; only seed state. Drawdown / near-liquidation still
+  // fire — they reflect *current* risk, which the user wants surfaced even
+  // for a position that isn't new.
+  const coldStart = prev.lastReportedNlv === null
+
   // ---- per-position: drawdown layers + near-liquidation ----
   for (const p of obs.positions) {
     const ps = prev.positions[p.key] ?? defaultPositionRiskState()
@@ -213,29 +222,31 @@ export function detectAccountEvents(
     nextPositions[p.key] = next
   }
 
-  // ---- account-level: position open / close diff ----
-  const known = new Set(prev.knownPositions)
-  const current = new Set(currentKeys)
-  for (const p of obs.positions) {
-    if (!known.has(p.key)) {
-      events.push({
-        accountId: obs.accountId,
-        accountLabel: obs.label,
-        kind: 'position_opened',
-        severity: 'high',
-        detail: `🟢 新倉 ${p.label} ${p.side} @ $${p.markPrice}`,
-      })
+  // ---- account-level: position open / close diff (skipped on cold start) ----
+  if (!coldStart) {
+    const known = new Set(prev.knownPositions)
+    const current = new Set(currentKeys)
+    for (const p of obs.positions) {
+      if (!known.has(p.key)) {
+        events.push({
+          accountId: obs.accountId,
+          accountLabel: obs.label,
+          kind: 'position_opened',
+          severity: 'high',
+          detail: `🟢 新倉 ${p.label} ${p.side} @ $${p.markPrice}`,
+        })
+      }
     }
-  }
-  for (const key of prev.knownPositions) {
-    if (!current.has(key)) {
-      events.push({
-        accountId: obs.accountId,
-        accountLabel: obs.label,
-        kind: 'position_closed',
-        severity: 'high',
-        detail: `🔴 平倉 ${key}`,
-      })
+    for (const key of prev.knownPositions) {
+      if (!current.has(key)) {
+        events.push({
+          accountId: obs.accountId,
+          accountLabel: obs.label,
+          kind: 'position_closed',
+          severity: 'high',
+          detail: `🔴 平倉 ${key}`,
+        })
+      }
     }
   }
 
