@@ -371,7 +371,11 @@ export function createAccountReport(opts: AccountReportOpts): AccountReport {
 
   async function onTick(): Promise<void> {
     const state = await loadState()
-    const observations = await observe()
+    const all = await observe()
+    // Skip dust accounts: a % drawdown / NLV move on a near-zero balance
+    // fires alerts on trivial absolute amounts (e.g. a $0.15 loss on a
+    // $0.73 leftover account). minNlvUsd = 0 monitors everything.
+    const observations = all.filter((o) => o.netLiquidation >= config.minNlvUsd)
     if (observations.length === 0) {
       await saveState(state)
       return

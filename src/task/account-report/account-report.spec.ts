@@ -1,5 +1,9 @@
 import { describe, it, expect } from 'vitest'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import { randomUUID } from 'node:crypto'
 import {
+  createAccountReport,
   detectAccountEvents,
   lossPctOfNlv,
   highestLayerHit,
@@ -12,6 +16,7 @@ import {
   type AccountRuleConfig,
   type PositionObservation,
 } from './account-report.js'
+import type { AccountReportConfig } from '../../core/config.js'
 
 const RULES: AccountRuleConfig = {
   drawdown: { layersPct: [10, 18, 25], releaseBuffer: 3 },
@@ -172,5 +177,70 @@ describe('message builders', () => {
 describe('defaultPositionRiskState', () => {
   it('starts clean', () => {
     expect(defaultPositionRiskState()).toEqual({ drawdownLayer: 0, liqAlerted: false })
+  })
+})
+
+describe('createAccountReport — dust-account filter (module-level)', () => {
+  function baseConfig(over: Partial<AccountReportConfig> = {}): AccountReportConfig {
+    return {
+      enabled: true, every: '5m', summaryEvery: '6h',
+      drawdown: { layersPct: [10, 18, 25], releaseBuffer: 3 },
+      liquidation: { safetyPct: 5, releaseBuffer: 2 },
+      nlvMovePct: 5, minNlvUsd: 10,
+      statePath: join(tmpdir(), `ar-test-${randomUUID().slice(0, 8)}.json`),
+      ...over,
+    }
+  }
+
+  // A fake UTAAccountSDK exposing just what observe() touches.
+  function fakeAccount(id: string, nlv: string, positions: Array<Record<string, unknown>>) {
+    return {
+      id, label: id,
+      getAccount: async () => ({ netLiquidation: nlv }),
+      getPositions: async () => positions.map((p) => ({
+        contract: { localSymbol: p.key, symbol: p.key },
+        side: p.side ?? 'long',
+        unrealizedPnL: p.unrealizedPnL ?? '0',
+        marketPrice: p.markPrice ?? '0',
+        liquidationPrice: p.liquidationPrice,
+      })),
+    }
+  }
+
+  it('skips a dust account (NLV < minNlvUsd) even when its % drawdown is huge', async () => {
+    const notified: Array<{ text: string; priority?: string }> = []
+    const manager = {
+      resolve: async () => [
+        // Dust: 20% loss but only -$0.15 absolute — must be skipped.
+        fakeAccount('OKX', '0.73', [{ key: 'SOL/USDT', unrealizedPnL: '-0.15', markPrice: '66.9' }]),
+      ],
+    } as any
+    const connectorCenter = { notify: async (text: string, opts?: { priority?: string }) => { notified.push({ text, priority: opts?.priority }); return {} as any } } as any
+
+    const ar = createAccountReport({ config: baseConfig({ enabled: false }), manager, connectorCenter })
+    await ar.start()
+    await ar.runNow()
+    ar.stop()
+
+    expect(notified).toEqual([]) // no alert, no quiet summary for a dust-only sweep
+  })
+
+  it('monitors an account at/above minNlvUsd and alerts on its drawdown', async () => {
+    const notified: Array<{ text: string; priority?: string }> = []
+    const manager = {
+      resolve: async () => [
+        fakeAccount('Binance', '2000', [{ key: 'BTC/USDT:USDT', unrealizedPnL: '-400', markPrice: '60000' }]),
+      ],
+    } as any
+    const connectorCenter = { notify: async (text: string, opts?: { priority?: string }) => { notified.push({ text, priority: opts?.priority }); return {} as any } } as any
+
+    const ar = createAccountReport({ config: baseConfig({ enabled: false }), manager, connectorCenter })
+    await ar.start()
+    await ar.runNow()
+    ar.stop()
+
+    expect(notified).toHaveLength(1)
+    expect(notified[0].priority).toBe('high')
+    expect(notified[0].text).toContain('L2') // -400/2000 = -20% → layer 2
   })
 })

@@ -351,6 +351,13 @@ export const accountReportSchema = z.object({
   }).default({ safetyPct: 5, releaseBuffer: 2 }),
   /** Account NLV move (%) vs last reported value that fires an alert. */
   nlvMovePct: z.number().positive().default(5),
+  /**
+   * Minimum account NLV (in base currency) to monitor at all. Accounts
+   * below this are skipped entirely — a percentage drawdown on a dust
+   * account (e.g. a $0.73 leftover balance) otherwise fires spammy alerts
+   * on trivial absolute amounts. Set to 0 to monitor every account.
+   */
+  minNlvUsd: z.number().nonnegative().default(10),
   statePath: z.string().default('data/account-report-state.json'),
 })
 
