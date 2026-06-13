@@ -7,6 +7,22 @@ once handled.
 Format: `- [ ] <area>: <item> — <short why/context>`. Keep the why, drop
 the item when done — git log is the history.
 
+## Account monitoring
+
+- [ ] Stop-loss-missing alert (account-report condition 3): detect when a
+      live position has no protective stop on the exchange. Blocked on a
+      broker capability gap — `IBroker.getOrders(orderIds)` needs explicit
+      ids, and the UTA `/orders` empty-ids path falls back to
+      `getPendingOrderIds()` (Alice-tracked staged orders only), so stops
+      the user set manually on the exchange are invisible. Needs a new
+      `listOpenOrders()` IBroker method across all brokers (Alpaca/CCXT/
+      IBKR/mock) + UTA route + SDK client — a cross-cutting interface
+      change, best isolated on its own branch (see CLAUDE.md). Once landed,
+      wire it into `src/task/account-report/` as a latched alert
+      (fire-once when a position's protective stop disappears, re-arm when
+      it reappears). The other three conditions (drawdown / near-liquidation
+      / NLV+position-diff) already ship.
+
 ## UTA split — v1 follow-ups
 
 - [ ] Auth gate between Alice and UTA: Step 6 left them on 127.0.0.1

@@ -50,6 +50,7 @@ import { createEventBus } from './core/event-bus.js'
 import { createCronEngine, createCronListener, createCronTools } from './task/cron/index.js'
 import { createHeartbeat } from './task/heartbeat/index.js'
 import { createMarketReport } from './task/market-report/index.js'
+import { createAccountReport } from './task/account-report/index.js'
 import { createAutoTradingScheduler } from './domain/auto-trading/scheduler.js'
 import { createMetricsListener } from './task/metrics/index.js'
 import { createAgentWorkListener } from './core/agent-work-listener.js'
@@ -312,6 +313,18 @@ async function main() {
     console.log(`market-report: enabled (every ${config.marketReport.every}, quiet summary every ${config.marketReport.summaryEvery})`)
   }
 
+  // ==================== Account Report (Pump-driven, deterministic, zero-AI) ====================
+
+  const accountReport = createAccountReport({
+    config: config.accountReport,
+    manager: utaManager,
+    connectorCenter,
+  })
+  await accountReport.start()
+  if (config.accountReport.enabled) {
+    console.log(`account-report: enabled (every ${config.accountReport.every}, summary every ${config.accountReport.summaryEvery})`)
+  }
+
   // ==================== Auto-trading Scheduler (Pump-driven, Phase 1) ====================
 
   const autoTradingScheduler = createAutoTradingScheduler({
@@ -481,6 +494,7 @@ async function main() {
     newsCollector?.stop()
     heartbeat.stop()
     marketReport.stop()
+    accountReport.stop()
     autoTradingScheduler.stop()
     metricsListener.stop()
     cronListener.stop()

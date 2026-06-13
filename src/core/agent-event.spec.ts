@@ -88,6 +88,13 @@ describe('validateEventPayload', () => {
     })).not.toThrow()
   })
 
+  it('should accept agent.work.requested from account-report source', () => {
+    expect(() => validateEventPayload('agent.work.requested', {
+      source: 'account-report',
+      prompt: 'account risk event',
+    })).not.toThrow()
+  })
+
   it('should reject agent.work.requested with unknown source', () => {
     expect(() => validateEventPayload('agent.work.requested', {
       source: 'bogus',

@@ -325,6 +325,37 @@ export const marketReportSchema = z.object({
 export type MarketReportConfig = z.infer<typeof marketReportSchema>
 export type MarketReportSymbolConfig = z.infer<typeof marketReportSymbolSchema>
 
+/**
+ * Deterministic account-risk monitor — polls connected UTAs (OKX, Binance,
+ * …) and TG-alerts on drawdown thresholds, near-liquidation, NLV moves,
+ * and position open/close. Fully program-driven (no AI). See
+ * src/task/account-report/.
+ */
+export const accountReportSchema = z.object({
+  enabled: z.boolean().default(false),
+  /** Poll interval — accounts are risk-sensitive, so tighter than market. */
+  every: z.string().default('5m'),
+  /** Quiet "accounts healthy" summary cadence (no alert → at most this often). */
+  summaryEvery: z.string().default('6h'),
+  drawdown: z.object({
+    /** Per-position loss thresholds as % of account NLV, ascending. */
+    layersPct: z.array(z.number().positive()).default([10, 18, 25]),
+    /** Layer re-arms when loss recovers below layersPct[0] − buffer. */
+    releaseBuffer: z.number().positive().default(3),
+  }).default({ layersPct: [10, 18, 25], releaseBuffer: 3 }),
+  liquidation: z.object({
+    /** Alert when mark-to-liquidation distance ≤ this %. */
+    safetyPct: z.number().positive().default(5),
+    /** Latch re-arms when distance climbs back above safetyPct + buffer. */
+    releaseBuffer: z.number().positive().default(2),
+  }).default({ safetyPct: 5, releaseBuffer: 2 }),
+  /** Account NLV move (%) vs last reported value that fires an alert. */
+  nlvMovePct: z.number().positive().default(5),
+  statePath: z.string().default('data/account-report-state.json'),
+})
+
+export type AccountReportConfig = z.infer<typeof accountReportSchema>
+
 export const toolsSchema = z.object({
   /** Tool names that are disabled. Tools not listed are enabled by default. */
   disabled: z.array(z.string()).default([]),
@@ -418,6 +449,7 @@ export type Config = {
   snapshot: z.infer<typeof snapshotSchema>
   autoTrading: AutoTradingConfig
   marketReport: MarketReportConfig
+  accountReport: AccountReportConfig
   mcp: z.infer<typeof mcpSchema>
   connectors: z.infer<typeof connectorsSchema>
   news: z.infer<typeof newsCollectorSchema>
@@ -460,7 +492,7 @@ export async function loadConfig(): Promise<Config> {
   // is pending. See src/migrations/INDEX.md for the full list.
   await runMigrations()
 
-  const files = ['engine.json', 'agent.json', 'crypto.json', 'securities.json', 'market-data.json', 'compaction.json', 'ai-provider-manager.json', 'heartbeat.json', 'snapshot.json', 'auto-trading.json', 'market-report.json', 'mcp.json', 'connectors.json', 'news.json', 'tools.json', 'webhook.json'] as const
+  const files = ['engine.json', 'agent.json', 'crypto.json', 'securities.json', 'market-data.json', 'compaction.json', 'ai-provider-manager.json', 'heartbeat.json', 'snapshot.json', 'auto-trading.json', 'market-report.json', 'account-report.json', 'mcp.json', 'connectors.json', 'news.json', 'tools.json', 'webhook.json'] as const
   const raws = await Promise.all(files.map((f) => loadJsonFile(f)))
 
   const config: Config = {
@@ -475,11 +507,12 @@ export async function loadConfig(): Promise<Config> {
     snapshot:      await parseAndSeed(files[8], snapshotSchema, raws[8]),
     autoTrading:   await parseAndSeed(files[9], autoTradingSchema, raws[9]),
     marketReport:  await parseAndSeed(files[10], marketReportSchema, raws[10]),
-    mcp:           await parseAndSeed(files[11], mcpSchema, raws[11]),
-    connectors:    await parseAndSeed(files[12], connectorsSchema, raws[12]),
-    news:          await parseAndSeed(files[13], newsCollectorSchema, raws[13]),
-    tools:         await parseAndSeed(files[14], toolsSchema, raws[14]),
-    webhook:       await parseAndSeed(files[15], webhookSchema, raws[15]),
+    accountReport: await parseAndSeed(files[11], accountReportSchema, raws[11]),
+    mcp:           await parseAndSeed(files[12], mcpSchema, raws[12]),
+    connectors:    await parseAndSeed(files[13], connectorsSchema, raws[13]),
+    news:          await parseAndSeed(files[14], newsCollectorSchema, raws[14]),
+    tools:         await parseAndSeed(files[15], toolsSchema, raws[15]),
+    webhook:       await parseAndSeed(files[16], webhookSchema, raws[16]),
   }
 
   // Spawn-time-fixed channel: when guardian (Electron main) spawns the
@@ -976,6 +1009,7 @@ const sectionSchemas: Record<ConfigSection, z.ZodTypeAny> = {
   snapshot: snapshotSchema,
   autoTrading: autoTradingSchema,
   marketReport: marketReportSchema,
+  accountReport: accountReportSchema,
   mcp: mcpSchema,
   connectors: connectorsSchema,
   news: newsCollectorSchema,
@@ -995,6 +1029,7 @@ const sectionFiles: Record<ConfigSection, string> = {
   snapshot: 'snapshot.json',
   autoTrading: 'auto-trading.json',
   marketReport: 'market-report.json',
+  accountReport: 'account-report.json',
   mcp: 'mcp.json',
   connectors: 'connectors.json',
   news: 'news.json',
