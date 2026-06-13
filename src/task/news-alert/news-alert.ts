@@ -30,8 +30,12 @@ import { readFile, writeFile, rename, mkdir } from 'node:fs/promises'
 import { dirname, resolve } from 'node:path'
 import { randomUUID } from 'node:crypto'
 import { createPump, type Pump } from '../../core/pump.js'
+import { parseDuration } from '../../core/duration.js'
 import type { ConnectorCenter } from '../../core/connector-center.js'
 import type { NewsAlertConfig } from '../../core/config.js'
+
+/** Fallback window when config.lookback can't be parsed. */
+const DEFAULT_LOOKBACK_MS = 30 * 60 * 1000
 
 // ==================== News source (minimal slice of INewsProvider) ====================
 
@@ -43,7 +47,7 @@ export interface NewsAlertItem {
 }
 
 export interface NewsAlertSource {
-  getNewsV2(options: { endTime: Date; lookback?: string; limit?: number }): Promise<NewsAlertItem[]>
+  getNewsV2(options: { endTime: Date; startTime?: Date; lookback?: string; limit?: number }): Promise<NewsAlertItem[]>
 }
 
 // ==================== Keyword classifier (pure) ====================
@@ -179,9 +183,17 @@ export function createNewsAlert(opts: NewsAlertOpts): NewsAlert {
     const state = await loadState()
     const seen = new Set(state.alertedKeys)
 
+    // Compute the window bound ourselves via parseDuration (handles
+    // minutes) and pass an explicit startTime — the store's own lookback
+    // parser only accepts h/d, so a '30m' string would silently widen the
+    // query to the entire archive and replay week-old headlines as if they
+    // were breaking.
+    const lookbackMs = parseDuration(config.lookback) ?? DEFAULT_LOOKBACK_MS
+    const endTime = new Date(now())
+    const startTime = new Date(now() - lookbackMs)
     let items: NewsAlertItem[]
     try {
-      items = await newsSource.getNewsV2({ endTime: new Date(now()), lookback: config.lookback })
+      items = await newsSource.getNewsV2({ endTime, startTime })
     } catch (err) {
       console.warn(`news-alert: getNewsV2 failed: ${err instanceof Error ? err.message : String(err)}`)
       return

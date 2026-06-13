@@ -155,6 +155,34 @@ describe('createNewsAlert — module tick (dedup + push)', () => {
     for (let i = 0; i < 6; i++) expect(allText).toContain(`Protocol ${i} hit by hack`)
   })
 
+  it('bounds the query to a real time window (passes startTime, not a "30m" string)', async () => {
+    // Regression for the lookback bug: the store's parseLookback only
+    // accepts h/d, so '30m' silently returned the whole archive. news-alert
+    // must compute startTime itself. Here the fake honors startTime and
+    // only returns an in-window item; an old item must be excluded.
+    let receivedStartTime: Date | undefined
+    const nowMs = Date.UTC(2026, 5, 13, 13, 0, 0)
+    const inWindow = { time: new Date(nowMs - 10 * 60 * 1000), title: 'Fresh hack just now', content: '', metadata: { source: 't', link: 'http://fresh' } }
+    const old = { time: new Date(nowMs - 7 * 24 * 60 * 60 * 1000), title: 'Week-old hack', content: '', metadata: { source: 't', link: 'http://old' } }
+    const newsSource = {
+      getNewsV2: async (opts: { startTime?: Date; endTime: Date }) => {
+        receivedStartTime = opts.startTime
+        return [inWindow, old].filter((i) => (!opts.startTime || i.time >= opts.startTime) && i.time <= opts.endTime)
+      },
+    }
+    const pushed: string[] = []
+    const connectorCenter = { notify: async (text: string) => { pushed.push(text); return {} as any } } as any
+
+    const na = createNewsAlert({ config: baseConfig({ enabled: false, lookback: '30m' }), newsSource, connectorCenter, now: () => nowMs })
+    await na.start(); await na.runNow(); na.stop()
+
+    expect(receivedStartTime).toBeInstanceOf(Date) // window IS bounded
+    expect(receivedStartTime!.getTime()).toBe(nowMs - 30 * 60 * 1000)
+    expect(pushed).toHaveLength(1)
+    expect(pushed[0]).toContain('Fresh hack just now')
+    expect(pushed[0]).not.toContain('Week-old hack') // stale item excluded
+  })
+
   it('does not push when nothing matches', async () => {
     const pushed: string[] = []
     const newsSource = { getNewsV2: async () => [item('Quiet day in crypto, prices flat')] }
