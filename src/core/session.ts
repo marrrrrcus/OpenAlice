@@ -414,9 +414,17 @@ function sanitizeToolMessages(messages: SDKModelMessage[]): SDKModelMessage[] {
 /** Max characters for a tool input/output summary line. */
 const TOOL_SUMMARY_MAX = 200
 
-/** Truncate a string to maxLen, appending "…" if trimmed. */
+/** Truncate a string to maxLen, appending "…" if trimmed.
+ *  Surrogate-pair safe: backs up one code unit if the cut point falls
+ *  inside a surrogate pair (which would produce invalid JSON / lone surrogates). */
 function truncate(s: string, maxLen: number): string {
-  return s.length <= maxLen ? s : s.slice(0, maxLen) + '…'
+  if (s.length <= maxLen) return s
+  // If char at (maxLen-1) is a high surrogate, back up so we don't leave
+  // a lone high surrogate that JSON.stringify encodes as invalid JSON.
+  let end = maxLen
+  const code = s.charCodeAt(end - 1)
+  if (code >= 0xD800 && code <= 0xDBFF) end--
+  return s.slice(0, end) + '…'
 }
 
 /** Summarize a single ContentBlock into a human-readable line (or null to skip). */

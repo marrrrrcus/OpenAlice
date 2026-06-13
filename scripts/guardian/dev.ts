@@ -77,9 +77,9 @@ async function main(): Promise<void> {
   const utaUrl = `http://127.0.0.1:${ports.utaPort}`
 
   const utaInitial = spawnChild(utaSpec)
-  const utaReady = await waitForHttp(`${utaUrl}/__uta/health`, { timeoutMs: 15_000 })
+  const utaReady = await waitForHttp(`${utaUrl}/__uta/health`, { timeoutMs: 45_000 })
   if (!utaReady) {
-    console.error(`[guardian] UTA failed to come up within 15s — aborting`)
+    console.error(`[guardian] UTA failed to come up within 45s — aborting`)
     try { utaInitial.kill('SIGTERM') } catch { /* noop */ }
     process.exit(1)
   }
