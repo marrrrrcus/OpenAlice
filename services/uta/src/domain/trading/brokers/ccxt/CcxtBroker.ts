@@ -450,32 +450,6 @@ export class CcxtBroker implements IBroker<CcxtBrokerMeta> {
         : undefined
 
       const placeOverride = this.overrides.placeOrder
-      // #region agent log
-      fetch('http://127.0.0.1:7718/ingest/5295aec3-6f32-4540-92fa-f26dfe2336d0', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'X-Debug-Session-Id': 'ec3939' },
-        body: JSON.stringify({
-          sessionId: 'ec3939',
-          runId: 'okx-posside-fix',
-          hypothesisId: 'OKX_POS_SIDE',
-          location: 'services/uta/src/domain/trading/brokers/ccxt/CcxtBroker.ts:placeOrder',
-          message: 'ccxt placeOrder params before submit',
-          data: {
-            exchange: this.exchangeName,
-            symbol: ccxtSymbol,
-            marketType: market?.type ?? null,
-            side,
-            orderType: ccxtOrderType,
-            hasReduceOnly: params.reduceOnly === true,
-            posSide: params.posSide ?? null,
-            tdMode: params.tdMode ?? null,
-            hasTakeProfit: Boolean(params.takeProfit),
-            hasStopLoss: Boolean(params.stopLoss),
-          },
-          timestamp: Date.now(),
-        }),
-      }).catch(() => {})
-      // #endregion
       const ccxtOrder = placeOverride
         ? await placeOverride(this.exchange, ccxtSymbol, ccxtOrderType, side, parseFloat(size), refPrice, params, defaultPlaceOrder)
         : await defaultPlaceOrder(this.exchange, ccxtSymbol, ccxtOrderType, side, parseFloat(size), refPrice, params)
@@ -491,25 +465,6 @@ export class CcxtBroker implements IBroker<CcxtBrokerMeta> {
         orderState: makeOrderState(ccxtOrder.status),
       }
     } catch (err) {
-      // #region agent log
-      fetch('http://127.0.0.1:7718/ingest/5295aec3-6f32-4540-92fa-f26dfe2336d0', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'X-Debug-Session-Id': 'ec3939' },
-        body: JSON.stringify({
-          sessionId: 'ec3939',
-          runId: 'okx-posside-fix',
-          hypothesisId: 'OKX_POS_SIDE',
-          location: 'services/uta/src/domain/trading/brokers/ccxt/CcxtBroker.ts:placeOrder',
-          message: 'ccxt placeOrder rejected',
-          data: {
-            exchange: this.exchangeName,
-            symbol: ccxtSymbol,
-            error: err instanceof Error ? err.message : String(err),
-          },
-          timestamp: Date.now(),
-        }),
-      }).catch(() => {})
-      // #endregion
       return { success: false, error: err instanceof Error ? err.message : String(err) }
     }
   }
