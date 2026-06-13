@@ -84,6 +84,12 @@ export interface AgentWorkRequest {
    *  to record the dedup window state. Not called for skip / error. */
   onDelivered?: (text: string, req: AgentWorkRequest) => void
 
+  /** Delivery urgency for the notify() call. 'high' lets push-capable
+   *  connectors surface proactively regardless of last-interaction —
+   *  used by monitoring sources (market-report) whose AI summaries are
+   *  themselves alerts. Defaults to 'normal'. */
+  notifyPriority?: 'normal' | 'high'
+
   /** Names of the events this work emits.
    *  - done:   on successful delivery (always)
    *  - error:  on AI invocation throw (always)
@@ -228,6 +234,7 @@ export class AgentWorkRunner {
       await this.connectorCenter.notify(decision.text, {
         media: decision.media,
         source: req.metadata.source,
+        priority: req.notifyPriority,
       })
       delivered = true
     } catch (sendErr) {

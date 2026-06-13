@@ -41,6 +41,9 @@ export interface AgentWorkSourceConfig {
   outputGate?: AgentWorkRequest['outputGate']
   /** Optional bookkeeping callback after a successful delivery. */
   onDelivered?: AgentWorkRequest['onDelivered']
+  /** Delivery urgency for this source's notifications. 'high' force-pushes
+   *  through push-capable connectors (see AgentWorkRequest.notifyPriority). */
+  notifyPriority?: AgentWorkRequest['notifyPriority']
   /** Source-specific metadata to attach to the `agent.work.done` payload.
    *  Defaults to passing through the request metadata. */
   buildDoneMetadata?: (
@@ -127,6 +130,7 @@ export function createAgentWorkListener(opts: AgentWorkListenerOpts): AgentWorkL
         metadata: { source: config.source, ...(payload.metadata ?? {}) },
         outputGate: config.outputGate,
         onDelivered: config.onDelivered,
+        notifyPriority: config.notifyPriority,
         emitNames: {
           done: 'agent.work.done',
           skip: 'agent.work.skip',

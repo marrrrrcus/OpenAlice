@@ -17,7 +17,7 @@ import type { Listener } from './listener.js'
 import type { ListenerRegistry } from './listener-registry.js'
 import type { ProducerHandle } from './producer.js'
 import type { MessageReceivedPayload, MessageSentPayload } from './agent-event.js'
-import type { INotificationsStore, NotificationEntry, NotificationSource } from './notifications-store.js'
+import type { INotificationsStore, NotificationEntry, NotificationSource, NotificationPriority } from './notifications-store.js'
 
 export type { Connector, SendPayload, SendResult, ConnectorCapabilities } from '../connectors/types.js'
 
@@ -33,6 +33,9 @@ export type { Connector, SendPayload, SendResult, ConnectorCapabilities } from '
 export interface NotifyOpts {
   media?: MediaAttachment[]
   source?: NotificationSource
+  /** Delivery urgency. 'high' tells push-capable connectors to surface
+   *  proactively even when they're not the last-interacted channel. */
+  priority?: NotificationPriority
 }
 
 // ==================== Interaction Tracking ====================
@@ -209,6 +212,7 @@ export class ConnectorCenter {
       text,
       source: opts?.source,
       media: opts?.media,
+      priority: opts?.priority,
     })
   }
 }

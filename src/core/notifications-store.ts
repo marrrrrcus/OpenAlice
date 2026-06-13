@@ -30,10 +30,22 @@ import type { MediaAttachment } from './types.js'
 
 export type NotificationSource = 'heartbeat' | 'cron' | 'manual' | 'task' | 'market-report'
 
+/**
+ * Delivery urgency. 'normal' (default) lets each connector apply its own
+ * surfacing policy (Telegram only inlines when it's the last-interacted
+ * channel). 'high' means "the user needs to see this now" — connectors
+ * that can push proactively do so regardless of last-interaction. Used for
+ * monitoring alerts (e.g. market-report stale-snapshot / RSI-breakout)
+ * that would otherwise silently land in the store if the user isn't
+ * actively chatting on that channel.
+ */
+export type NotificationPriority = 'normal' | 'high'
+
 export interface NotificationInput {
   text: string
   source?: NotificationSource
   media?: MediaAttachment[]
+  priority?: NotificationPriority
 }
 
 export interface NotificationEntry extends NotificationInput {

@@ -4,7 +4,7 @@ import { readFile } from 'node:fs/promises'
 import type { Message } from 'grammy/types'
 import type { Plugin, EngineContext, MediaAttachment } from '../../core/types.js'
 import type { TelegramConfig, ParsedMessage } from './types.js'
-import { buildParsedMessage } from './helpers.js'
+import { buildParsedMessage, shouldSurfaceToTelegram } from './helpers.js'
 import { MediaGroupMerger } from './media-group.js'
 import { askAgentSdk } from '../../ai-providers/agent-sdk/query.js'
 import type { AgentSdkConfig } from '../../ai-providers/agent-sdk/query.js'
@@ -259,12 +259,18 @@ export class TelegramPlugin implements Plugin {
       this.unregisterConnector = this.connectorCenter!.register(telegramConnector)
 
       // Subscribe to notifications store. Telegram surfaces system pushes
-      // by inlining them into the chat thread — but only when the user
-      // is actively using Telegram (last-interacted channel is 'telegram').
-      // Otherwise we don't ping; the user can pull via /notifications.
+      // by inlining them into the chat thread — normally only when the user
+      // is actively using Telegram (last-interacted channel is 'telegram'),
+      // otherwise they pull via /notifications.
+      //
+      // Exception: priority 'high' notifications (monitoring alerts —
+      // market-report stale-snapshot, RSI breakouts) push regardless of
+      // last-interaction. The whole point of an alert is to reach the user
+      // when they're NOT watching; gating it on recent activity would make
+      // it silently land in the store at 3am exactly when it matters most.
       this.unsubscribeNotifications = engineCtx.notificationsStore.onAppended((entry) => {
         const last = engineCtx.connectorCenter.getLastInteraction()
-        if (last?.channel !== 'telegram') return
+        if (!shouldSurfaceToTelegram(entry.priority, last?.channel)) return
         telegramConnector
           .send({ kind: 'notification', text: entry.text, media: entry.media, source: entry.source })
           .catch((err) => console.warn('telegram: notification surface failed:', err))
@@ -599,9 +605,11 @@ export class TelegramPlugin implements Plugin {
         const side = op.order?.action || '?'
         const qty = op.order?.totalQuantity
         const cashQty = op.order?.cashQty
-        const hasCash = cashQty && !cashQty.equals(UNSET_DECIMAL) && cashQty.gt(0)
-        const hasQty = qty && !qty.equals(UNSET_DECIMAL)
-        const size = hasCash ? `$${cashQty.toFixed()}` : hasQty ? qty.toFixed() : '?'
+        const cashQtyDecimal = this.toDisplayDecimal(cashQty)
+        const qtyDecimal = this.toDisplayDecimal(qty)
+        const hasCash = cashQtyDecimal && !cashQtyDecimal.equals(UNSET_DECIMAL) && cashQtyDecimal.gt(0)
+        const hasQty = qtyDecimal && !qtyDecimal.equals(UNSET_DECIMAL)
+        const size = hasCash ? `$${cashQtyDecimal.toFixed()}` : hasQty ? qtyDecimal.toFixed() : '?'
         return `${side} ${symbol} ${size}`
       }
       case 'closePosition':
@@ -617,6 +625,15 @@ export class TelegramPlugin implements Plugin {
         const dir = delta.gte(0) ? 'OBSERVED' : 'RELEASED'
         return `${dir} ${symbol} ${delta.abs().toFixed()} @${op.markPrice}`
       }
+    }
+  }
+
+  private toDisplayDecimal(value: unknown): Decimal | null {
+    if (value == null) return null
+    try {
+      return Decimal.isDecimal(value) ? value : new Decimal(value as Decimal.Value)
+    } catch {
+      return null
     }
   }
 

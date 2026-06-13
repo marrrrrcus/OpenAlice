@@ -1,5 +1,21 @@
 import type { Message } from 'grammy/types'
 import type { ParsedMessage, MediaRef } from './types.js'
+import type { NotificationPriority } from '../../core/notifications-store.js'
+
+/**
+ * Decide whether a store notification should be pushed into the Telegram
+ * thread. Normal-priority notifications inline only when Telegram is the
+ * last-interacted channel (avoid pinging an idle channel); high-priority
+ * notifications — monitoring alerts — push regardless, since the point of
+ * an alert is to reach the user precisely when they're NOT watching.
+ */
+export function shouldSurfaceToTelegram(
+  priority: NotificationPriority | undefined,
+  lastInteractedChannel: string | undefined,
+): boolean {
+  if (priority === 'high') return true
+  return lastInteractedChannel === 'telegram'
+}
 
 export function extractMedia(msg: Message): MediaRef[] {
   const media: MediaRef[] = []

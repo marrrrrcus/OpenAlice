@@ -241,6 +241,9 @@ export function createMarketReport(opts: MarketReportOpts): MarketReport {
       'All market data in the prompt was computed by the system — do not call tools to re-fetch it.',
     // No output gate — an event already passed the deterministic rules,
     // so every AI reply is worth delivering.
+    // High priority — an event summary IS an alert; it should reach the
+    // user via Telegram even when they're not actively chatting there.
+    notifyPriority: 'high',
   }
 
   // ---- state persistence ----
@@ -329,11 +332,11 @@ export function createMarketReport(opts: MarketReportOpts): MarketReport {
         : null
       await connectorCenter.notify(
         `⚠️ 行情快照已${ageMin !== null ? ` ${ageMin} 分鐘` : ''}未更新，snapshot writer 可能停止運作，請檢查。`,
-        { source: 'market-report' },
+        { source: 'market-report', priority: 'high' },
       )
       state.staleAlerted = true
     } else if (!stale && snapshot !== undefined && state.staleAlerted) {
-      await connectorCenter.notify('✅ 行情快照已恢復更新。', { source: 'market-report' })
+      await connectorCenter.notify('✅ 行情快照已恢復更新。', { source: 'market-report', priority: 'high' })
       state.staleAlerted = false
     }
     if (stale) staleNote = '⚠️ 注意：行情快照過期，價格來自日線資料。'
