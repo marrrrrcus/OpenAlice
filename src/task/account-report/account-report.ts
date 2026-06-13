@@ -258,12 +258,13 @@ export function detectAccountEvents(
     const movePct = (obs.netLiquidation / prev.lastReportedNlv - 1) * 100
     if (Math.abs(movePct) >= rules.nlvMovePct) {
       const dir = movePct > 0 ? '增加' : '減少'
+      const arrow = movePct > 0 ? '📈' : '📉'
       events.push({
         accountId: obs.accountId,
         accountLabel: obs.label,
         kind: 'nlv_move',
         severity: 'normal',
-        detail: `帳戶淨值${dir} ${Math.abs(movePct).toFixed(2)}%（$${prev.lastReportedNlv.toFixed(2)} → $${obs.netLiquidation.toFixed(2)}）`,
+        detail: `${arrow} 帳戶淨值${dir} ${Math.abs(movePct).toFixed(2)}%（$${prev.lastReportedNlv.toFixed(2)} → $${obs.netLiquidation.toFixed(2)}）`,
       })
       nextNlv = obs.netLiquidation // re-anchor
     }
@@ -281,9 +282,18 @@ export function detectAccountEvents(
 
 // ==================== Message builders (pure) ====================
 
+/** Event kinds that represent genuine downside risk (vs. informational). */
+const RISK_KINDS: ReadonlySet<DetectedAccountEvent['kind']> = new Set(['drawdown', 'near_liquidation'])
+
 export function buildAlertMessage(accountLabel: string, events: DetectedAccountEvent[]): string {
+  // A real risk event (drawdown / near-liquidation) makes the whole batch
+  // an alarm. A batch of purely informational events (NLV move, position
+  // open/close) is a status update — using 🚨 for "your account went up
+  // 5%" erodes the alarm's signal value when a real loss arrives.
+  const isAlarm = events.some((e) => RISK_KINDS.has(e.kind))
+  const header = isAlarm ? `🚨 帳戶警示 — ${accountLabel}` : `📊 帳戶動態 — ${accountLabel}`
   const lines = events.map((e) => `· ${e.detail}`)
-  return [`🚨 帳戶警示 — ${accountLabel}`, ...lines].join('\n')
+  return [header, ...lines].join('\n')
 }
 
 export function buildQuietSummary(observations: AccountObservation[]): string {

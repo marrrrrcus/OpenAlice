@@ -156,11 +156,21 @@ describe('position open / close diff', () => {
 })
 
 describe('NLV move', () => {
-  it('fires when NLV moves beyond threshold vs last reported', () => {
+  it('fires when NLV moves beyond threshold vs last reported, with 📈 on a gain', () => {
     const state = freshState({ lastReportedNlv: 2000 })
     const r = detectAccountEvents(acc({ netLiquidation: 2150 }), state, RULES) // +7.5%
-    expect(r.events.map(e => e.kind)).toContain('nlv_move')
+    const ev = r.events.find(e => e.kind === 'nlv_move')
+    expect(ev).toBeDefined()
+    expect(ev!.detail).toContain('📈')
+    expect(ev!.detail).toContain('增加')
     expect(r.next.lastReportedNlv).toBe(2150) // re-anchored
+  })
+
+  it('uses 📉 on a downward NLV move', () => {
+    const r = detectAccountEvents(acc({ netLiquidation: 1880 }), freshState({ lastReportedNlv: 2000 }), RULES) // -6%
+    const ev = r.events.find(e => e.kind === 'nlv_move')
+    expect(ev!.detail).toContain('📉')
+    expect(ev!.detail).toContain('減少')
   })
 
   it('stays silent below threshold and anchors first observation', () => {
@@ -173,14 +183,31 @@ describe('NLV move', () => {
 })
 
 describe('message builders', () => {
-  it('buildAlertMessage lists every event detail under the account header', () => {
+  it('buildAlertMessage uses 🚨 alarm header when a risk event is present', () => {
     const msg = buildAlertMessage('Binance Live', [
       { accountId: 'b', accountLabel: 'Binance Live', kind: 'drawdown', severity: 'high', detail: 'BTC 浮虧達淨值 -18%（L2）' },
       { accountId: 'b', accountLabel: 'Binance Live', kind: 'near_liquidation', severity: 'high', detail: '⚠️ BTC 距強平 3%' },
     ])
-    expect(msg).toContain('Binance Live')
+    expect(msg).toContain('🚨 帳戶警示 — Binance Live')
     expect(msg).toContain('-18%（L2）')
     expect(msg).toContain('距強平 3%')
+  })
+
+  it('buildAlertMessage uses 📊 status header for purely informational events (no alarm for a gain)', () => {
+    const msg = buildAlertMessage('Binance Live', [
+      { accountId: 'b', accountLabel: 'Binance Live', kind: 'nlv_move', severity: 'normal', detail: '📈 帳戶淨值增加 5.63%（$1817.72 → $1920.10）' },
+    ])
+    expect(msg).toContain('📊 帳戶動態 — Binance Live')
+    expect(msg).not.toContain('🚨')
+    expect(msg).toContain('📈 帳戶淨值增加 5.63%')
+  })
+
+  it('buildAlertMessage: risk wins when a batch mixes risk + informational', () => {
+    const msg = buildAlertMessage('Acct', [
+      { accountId: 'a', accountLabel: 'Acct', kind: 'nlv_move', severity: 'normal', detail: '📉 帳戶淨值減少 6%' },
+      { accountId: 'a', accountLabel: 'Acct', kind: 'drawdown', severity: 'high', detail: 'BTC 浮虧 -10%（L1）' },
+    ])
+    expect(msg).toContain('🚨 帳戶警示')
   })
 
   it('buildQuietSummary renders one entry per account with position count', () => {
