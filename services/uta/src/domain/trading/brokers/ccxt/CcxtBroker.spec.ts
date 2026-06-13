@@ -1187,6 +1187,26 @@ describe('CcxtBroker — getPositions', () => {
     const localSymbols = positions.map(p => p.contract.localSymbol)
     expect(localSymbols).toContain('BTC/USDT')        // spot
     expect(localSymbols).toContain('BTC/USDT:USDT')   // perp
+
+    // Perp surfaces liquidationPrice (string); spot leaves it undefined.
+    const perp = positions.find(p => p.contract.localSymbol === 'BTC/USDT:USDT')
+    const spot = positions.find(p => p.contract.localSymbol === 'BTC/USDT')
+    expect(perp?.liquidationPrice).toBe('50000')
+    expect(spot?.liquidationPrice).toBeUndefined()
+  })
+
+  it('omits liquidationPrice when broker reports 0 / null (not applicable)', async () => {
+    const acc = makeAccount()
+    setInitialized(acc, { 'BTC/USDT:USDT': makeSwapMarket('BTC', 'USDT', 'BTC/USDT:USDT') })
+    ;(acc as any).exchange.fetchBalance = vi.fn().mockResolvedValue({})
+    ;(acc as any).exchange.fetchPositions = vi.fn().mockResolvedValue([
+      { symbol: 'BTC/USDT:USDT', contracts: 1, contractSize: 1, markPrice: 60000,
+        entryPrice: 58000, unrealizedPnl: 2000, side: 'long', liquidationPrice: 0 },
+    ])
+
+    const positions = await acc.getPositions()
+    expect(positions).toHaveLength(1)
+    expect(positions[0].liquidationPrice).toBeUndefined()
   })
 
   it('falls back to per-symbol fetchTicker when fetchTickers throws', async () => {

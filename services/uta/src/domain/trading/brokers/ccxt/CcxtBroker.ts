@@ -786,6 +786,14 @@ export class CcxtBroker implements IBroker<CcxtBrokerMeta> {
         const entryPrice = new Decimal(String(p.entryPrice ?? 0))
         const marketValue = quantity.mul(markPrice)
         const unrealizedPnL = new Decimal(String(p.unrealizedPnl ?? 0))
+        // Liquidation price (leveraged derivatives only). CCXT reports 0 or
+        // null when not applicable / not provided — surface only a real
+        // positive value so consumers can distinguish "no liq price" from
+        // "liq price is literally 0".
+        const rawLiq = p.liquidationPrice
+        const liquidationPrice = rawLiq != null && Number(rawLiq) > 0
+          ? new Decimal(String(rawLiq)).toString()
+          : undefined
 
         result.push(buildPosition({
           contract: marketToContract(market, this.exchangeName),
@@ -802,6 +810,7 @@ export class CcxtBroker implements IBroker<CcxtBrokerMeta> {
           // multiplier is canonical 1 here.
           multiplier: '1',
           avgCostSource: 'broker',
+          ...(liquidationPrice !== undefined && { liquidationPrice }),
         }))
       }
 

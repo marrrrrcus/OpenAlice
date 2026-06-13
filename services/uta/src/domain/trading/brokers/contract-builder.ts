@@ -94,6 +94,8 @@ export interface BuildPositionInput {
   /** Pre-computed unrealizedPnL — see marketValue. */
   unrealizedPnL?: string
   avgCostSource?: 'broker' | 'wallet'
+  /** Liquidation price (leveraged derivatives). Passed through verbatim. */
+  liquidationPrice?: string
 }
 
 /**
@@ -153,5 +155,6 @@ export function buildPosition(input: BuildPositionInput): Position {
     realizedPnL: input.realizedPnL,
     multiplier,
     ...(input.avgCostSource && { avgCostSource: input.avgCostSource }),
+    ...(input.liquidationPrice !== undefined && { liquidationPrice: input.liquidationPrice }),
   }
 }

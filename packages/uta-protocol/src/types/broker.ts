@@ -101,6 +101,15 @@ export interface Position {
    * Undefined defaults to `'broker'` (current behavior, back-compat).
    */
   avgCostSource?: 'broker' | 'wallet'
+  /**
+   * Liquidation price for leveraged derivative positions, as a string to
+   * preserve precision. Populated by brokers that expose it (CCXT
+   * perps/futures via fetchPositions); `undefined` for spot holdings and
+   * brokers without the concept (IBKR cash, Alpaca equities). Consumers
+   * (e.g. account-report's near-liquidation alert) must treat absence as
+   * "not applicable", not "safe".
+   */
+  liquidationPrice?: string
 }
 
 // ==================== Order result ====================
