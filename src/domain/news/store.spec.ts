@@ -209,6 +209,14 @@ describe('NewsCollectorStore', () => {
       expect(items[2].title).toBe('News 9')
     })
 
+    it('getNewsV2 with minute lookback', async () => {
+      const endTime = new Date('2026-02-27T09:00:00Z') // = news 9
+      const items = await store.getNewsV2({ endTime, lookback: '30m' })
+      // 30 minutes back from 09:00 excludes news 8 at 08:00 and keeps news 9.
+      expect(items).toHaveLength(1)
+      expect(items[0].title).toBe('News 9')
+    })
+
     it('getNewsV2 with limit', async () => {
       const endTime = new Date('2026-02-27T09:00:00Z')
       const items = await store.getNewsV2({ endTime, limit: 3 })

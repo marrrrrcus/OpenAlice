@@ -21,13 +21,14 @@ const DEFAULT_RETENTION_DAYS = 7
 
 /**
  * Parse a semantic time string into milliseconds.
- * Supported formats: 1h, 2h, 12h, 24h, 1d, 2d, 7d, 30d
+ * Supported formats: 30m, 1h, 2h, 12h, 24h, 1d, 2d, 7d, 30d
  */
 export function parseLookback(lookback: string): number | null {
-  const match = lookback.match(/^(\d+)(h|d)$/i)
+  const match = lookback.match(/^(\d+)(m|h|d)$/i)
   if (!match) return null
   const value = parseInt(match[1], 10)
   const unit = match[2].toLowerCase()
+  if (unit === 'm') return value * 60 * 1000
   if (unit === 'h') return value * 60 * 60 * 1000
   if (unit === 'd') return value * 24 * 60 * 60 * 1000
   return null
