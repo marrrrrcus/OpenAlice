@@ -65,27 +65,9 @@ REM bug: UTA (47333) stays listening even when the Alice backend (47331)
 REM crashes, so a partial/broken stack would be misread as "already running"
 REM and never get restarted.  exit 10 = all healthy, 11 = partial, 0 = none.
 powershell -NoProfile -ExecutionPolicy Bypass -Command "$ports = 47331,47332,47333,5173; $up = @(Get-NetTCPConnection -State Listen -ErrorAction SilentlyContinue | Where-Object { $ports -contains $_.LocalPort } | Select-Object -ExpandProperty LocalPort -Unique); if ($up.Count -eq $ports.Count) { exit 10 } elseif ($up.Count -gt 0) { Write-Host ('       up: ' + ($up -join ', ') + '  |  down: ' + (($ports | Where-Object { $up -notcontains $_ }) -join ', ')); exit 11 }"
-if %ERRORLEVEL% EQU 10 (
-  echo.
-  echo [INFO] Alice already appears to be running (all ports healthy).
-  echo        UI:      http://localhost:5173/
-  echo        Backend: http://127.0.0.1:47331/
-  echo        UTA:     http://127.0.0.1:47333/
-  echo.
-  echo [INFO] Opening the Alice UI in your browser...
-  start "" "http://localhost:5173/"
-  call :maybe_pause
-  exit /b 0
-)
-if %ERRORLEVEL% EQU 11 (
-  echo.
-  echo [WARN] Alice is in a PARTIAL / unhealthy state - some ports are up, some are down.
-  echo        This usually means the backend crashed while UTA/UI stayed alive.
-  echo        Close EVERY Alice window (the pnpm dev terminal + any leftover
-  echo        UTA/writer windows), then run this file again for a clean start.
-  call :maybe_pause
-  exit /b 1
-)
+set "PORT_STATUS=%ERRORLEVEL%"
+if "%PORT_STATUS%"=="10" goto :already_running
+if "%PORT_STATUS%"=="11" goto :partial_running
 if errorlevel 1 (
   echo [WARN] Could not verify ports. Continuing startup...
 )
@@ -93,6 +75,8 @@ if errorlevel 1 (
 echo.
 echo [3/4] Building workspace packages (needed on first run)...
 call :build_package "@traderalice/ibkr" "packages\ibkr\dist\index.js"
+if errorlevel 1 exit /b 1
+call :verify_ibkr_exports
 if errorlevel 1 exit /b 1
 call :build_package "@traderalice/uta-protocol" "packages\uta-protocol\dist\index.js"
 if errorlevel 1 exit /b 1
@@ -111,6 +95,27 @@ set "EXIT_CODE=%ERRORLEVEL%"
 
 endlocal
 exit /b %EXIT_CODE%
+
+:already_running
+echo.
+echo [INFO] Alice already appears to be running (all ports healthy).
+echo        UI:      http://localhost:5173/
+echo        Backend: http://127.0.0.1:47331/
+echo        UTA:     http://127.0.0.1:47333/
+echo.
+echo [INFO] Opening the Alice UI in your browser...
+start "" "http://localhost:5173/"
+call :maybe_pause
+exit /b 0
+
+:partial_running
+echo.
+echo [WARN] Alice is in a PARTIAL / unhealthy state - some ports are up, some are down.
+echo        This usually means the backend crashed while UTA/UI stayed alive.
+echo        Close EVERY Alice window (the pnpm dev terminal + any leftover
+echo        UTA/writer windows), then run this file again for a clean start.
+call :maybe_pause
+exit /b 1
 
 :build_package
 set "PKG=%~1"
@@ -134,6 +139,26 @@ if not exist "%DIST_FILE%" (
   call :maybe_pause
   exit /b 1
 )
+exit /b 0
+
+:verify_ibkr_exports
+node --input-type=module -e "import('@traderalice/ibkr').then(m=>process.exit(typeof m.coerceSecType==='function'?0:2)).catch(()=>process.exit(2))" >nul 2>nul
+if errorlevel 1 (
+  echo   [build] @traderalice/ibkr stale dist detected; rebuilding
+  pnpm --filter @traderalice/ibkr exec tsc
+  if errorlevel 1 (
+    echo [ERROR] Failed to rebuild @traderalice/ibkr.
+    call :maybe_pause
+    exit /b 1
+  )
+  node --input-type=module -e "import('@traderalice/ibkr').then(m=>process.exit(typeof m.coerceSecType==='function'?0:2)).catch(()=>process.exit(2))" >nul 2>nul
+  if errorlevel 1 (
+    echo [ERROR] @traderalice/ibkr built, but coerceSecType is still unavailable.
+    call :maybe_pause
+    exit /b 1
+  )
+)
+echo   [OK] @traderalice/ibkr exports verified
 exit /b 0
 
 :maybe_pause
