@@ -34,6 +34,11 @@ restarts. All three skip work cleanly when their source is empty/unreachable.
 | account-report | 5m | no — fully deterministic | `data/account-report-state.json` | `account-report.json` |
 | news-alert | 10m | no — fully deterministic | `data/news-alert-state.json` | `news-alert.json` |
 
+Order book and funding-rate reads are exposed to Alice as live tools
+(`getOrderBook`, `getFundingRate`), but they are not scheduled alerts yet.
+The planned low-noise alert layer is documented in
+[microstructure-alerts.md](microstructure-alerts.md).
+
 ### Token cost
 
 account-report and news-alert never call the AI — zero tokens, always.
@@ -58,9 +63,13 @@ for genuine alerts, `'normal'` for quiet/informational summaries.
 (configurable) price + RSI(14).
 
 - **Data**: live price from `data/market-snapshot.json` (written by the
-  external `okx_snapshot_writer`, 5-min cadence) when fresh; daily candles
-  from the crypto market-data client for the RSI series. RSI is computed
-  in-process via [domain/analysis](../src/domain/analysis/).
+  repo-local `services/okx_snapshot_writer.py`, 5-min cadence) when fresh;
+  daily candles from the crypto market-data client for the RSI series. RSI
+  is computed in-process via [domain/analysis](../src/domain/analysis/).
+  On Marcus's Windows workstation the writer is started by
+  `START_ALICE.bat` through `scripts/start-okx-snapshot-writer.ps1` and
+  `scripts/run-okx-snapshot-writer.bat`; do not run the old
+  `20250926-binance_trader_v8` writer in parallel.
 - **Rules** ([`detectSymbolEvents`](../src/task/market-report/market-report.ts)):
   RSI zone state machine with hysteresis — fires on entering oversold
   (<30) / overbought (>70), and on *exiting* the zone past a buffer

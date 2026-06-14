@@ -37,6 +37,7 @@ Alice runs on your own machine, because trading involves private keys and real m
 
 ### Research & Analysis
 
+- **Exchange microstructure reads** — connected CCXT crypto accounts expose live order book depth and funding-rate reads to Alice via `getOrderBook` / `getFundingRate`. These are read-only public exchange data calls; alerts are planned separately.
 - **Market data** — equity, crypto, commodity, currency, and macro data via TypeScript-native OpenBB engine. Unified cross-asset symbol search and technical indicator calculator
 - **Fundamental research** — company profiles, financial statements, ratios, analyst estimates, earnings calendar, insider trading, and market movers. Currently deepest for equities, expanding to other asset classes
 - **News** — background RSS collection with archive search
@@ -60,6 +61,8 @@ Automation has two layers in OpenAlice. They're worth separating because each ev
 - **News** — breaking-headline keyword alerts from the RSS archive, tiered so it doesn't spam on every coin mention
 
 See [docs/monitoring.md](docs/monitoring.md) for the full design (hysteresis, cold-start handling, force-push priority).
+The next monitoring milestone is a low-noise [microstructure alert system](docs/microstructure-alerts.md)
+that turns order book + funding reads into explainable Telegram risk alerts.
 
 ### Interface
 
@@ -308,6 +311,57 @@ First-time `pnpm install` pulls the full monorepo + native deps (notably
 
 ### 2. Start it
 
+#### Marcus Windows workstation
+
+On Marcus's Windows workstation, use the repo-local launcher instead of
+starting pieces by hand:
+
+```text
+C:\Users\Marcus\OneDrive\Desktop\Open Alice\START_ALICE.bat
+```
+
+Keep the windows it opens alive:
+
+- the main Alice window runs Guardian, UTA, Alice backend, MCP, and Vite
+- the "OpenAlice OKX Snapshot Writer" window updates
+  `data\market-snapshot.json` every 5 minutes
+
+Then open the UI:
+
+```text
+http://localhost:5173/
+```
+
+This local setup is self-contained under `Open Alice`. Do not start the
+old `20250926-binance_trader_v8` snapshot writer; the active writer is
+`services\okx_snapshot_writer.py`, started through
+`scripts\start-okx-snapshot-writer.ps1` / `scripts\run-okx-snapshot-writer.bat`.
+It reads OKX credentials from the gitignored `.env`, writes
+`logs\okx_snapshot.log`, and keeps the market snapshot fresh for
+market-report and auto-trading signal checks.
+
+Expected local ports:
+
+```text
+UI:      http://localhost:5173/
+Alice:   http://127.0.0.1:47331/
+MCP:     http://127.0.0.1:47332/mcp
+UTA:     http://127.0.0.1:47333/
+```
+
+Operational health checks:
+
+- `data\market-snapshot.json` should update about every 5 minutes
+- `data\account-report-state.json` updates after the 5-minute account monitor tick
+- `data\news-alert-state.json` updates after the 10-minute news monitor tick
+- `data\market-report-state.json` updates after the 30-minute market monitor tick
+
+Closing the main Alice window stops Alice. Closing the snapshot-writer
+window stops market-snapshot updates and Alice will mark the snapshot
+stale after 15 minutes.
+
+#### Generic source checkout
+
 ```bash
 pnpm dev
 ```
@@ -470,6 +524,13 @@ All config lives in `data/config/` as JSON files with Zod validation. Missing fi
 | `snapshot.json` | Account snapshot interval and retention |
 | `compaction.json` | Context window limits, auto-compaction thresholds |
 | `heartbeat.json` | Heartbeat enable/disable, interval, active hours |
+
+Microstructure note: `getOrderBook` and `getFundingRate` are live read-only
+trading tools, not scheduled alerts yet. Symbols are resolved through
+`searchContracts` and the returned `aliceId`, so BTC/ETH/SOL/etc. do not need
+hard-coded query paths as long as the connected exchange account can find the
+contract. See [docs/microstructure-alerts.md](docs/microstructure-alerts.md)
+for the planned alert layer.
 
 Persona and heartbeat prompts use a **default + user override** pattern:
 
