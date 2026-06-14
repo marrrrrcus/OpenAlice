@@ -128,21 +128,21 @@ Do not scan the whole market in v1. Start with a small list:
 
 ```json
 {
-  "symbols": ["BTCUSDT", "ETHUSDT", "SOLUSDT"],
-  "orderbook_interval": "2m",
-  "funding_interval": "30m",
-  "enabled_alerts": [
-    "spread_widening",
-    "orderbook_imbalance",
-    "depth_thinning",
-    "funding_extreme",
-    "funding_change"
-  ]
+  "source": "ccxt-custom-7e373296",
+  "symbols": ["BTC/USDT:USDT", "ETH/USDT:USDT", "SOL/USDT:USDT"],
+  "orderbookEvery": "2m",
+  "fundingEvery": "30m"
 }
 ```
 
-Symbols resolve through `searchContracts` and the returned `aliceId`.
-Avoid hard-coding exchange-native formats outside config/state.
+**Symbol resolution:** each `symbols` entry is the **CCXT unified native
+symbol** (e.g. `BTC/USDT:USDT`), used directly as the `accountId|symbol`
+aliceId. We do **not** go through `searchContracts` — its aggregated index
+does not reliably return per-account CCXT perps (OKX returned 0 hits in
+testing), whereas a directly-constructed aliceId resolves through the
+broker's native-key decoder and works on both OKX and Binance. So write
+the full unified symbol, not `BTCUSDT`. `source` must be a CCXT crypto UTA
+id (the only brokers that implement getOrderBook / getFundingRate).
 
 ### Polling cadence (tiered)
 

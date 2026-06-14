@@ -1,10 +1,16 @@
-# Proactive Monitoring — market / account / news alerts
+# Proactive Monitoring — market / account / news / microstructure alerts
 
-OpenAlice runs three **deterministic, Pump-driven monitors** that push
-alerts to the user (primarily Telegram) without being asked. They exist
-to replace prompt-driven "check X every N minutes" cron jobs, whose every
-tick spent AI tokens fetching data via tool calls and produced a report
-even when nothing changed.
+OpenAlice runs **deterministic, Pump-driven monitors** that push alerts to
+the user (primarily Telegram) without being asked. They exist to replace
+prompt-driven "check X every N minutes" cron jobs, whose every tick spent
+AI tokens fetching data via tool calls and produced a report even when
+nothing changed.
+
+Three are active by default — **market-report**, **account-report**,
+**news-alert**. A fourth, **microstructure-alert** (order book + funding
+risk), is wired but ships `enabled: false`; enable it per
+[microstructure-alerts.md](microstructure-alerts.md) once you've picked a
+CCXT `source` account and let its baselines warm up.
 
 **Read this before touching `src/task/market-report/`,
 `src/task/account-report/`, or `src/task/news-alert/`** — they share a
