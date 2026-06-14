@@ -37,7 +37,7 @@ Alice runs on your own machine, because trading involves private keys and real m
 
 ### Research & Analysis
 
-- **Exchange microstructure reads** — connected CCXT crypto accounts expose live order book depth and funding-rate reads to Alice via `getOrderBook` / `getFundingRate`. These are read-only public exchange data calls; alerts are planned separately.
+- **Exchange microstructure reads** — connected CCXT crypto accounts expose live order book depth and funding-rate reads to Alice via `getOrderBook` / `getFundingRate`. These are read-only public exchange data calls; the optional microstructure alert task ships off by default.
 - **Market data** — equity, crypto, commodity, currency, and macro data via TypeScript-native OpenBB engine. Unified cross-asset symbol search and technical indicator calculator
 - **Fundamental research** — company profiles, financial statements, ratios, analyst estimates, earnings calendar, insider trading, and market movers. Currently deepest for equities, expanding to other asset classes
 - **News** — background RSS collection with archive search
@@ -525,11 +525,11 @@ All config lives in `data/config/` as JSON files with Zod validation. Missing fi
 | `heartbeat.json` | Heartbeat enable/disable, interval, active hours |
 
 Microstructure note: `getOrderBook` and `getFundingRate` are live read-only
-trading tools, not scheduled alerts yet. Symbols are resolved through
-`searchContracts` and the returned `aliceId`, so BTC/ETH/SOL/etc. do not need
-hard-coded query paths as long as the connected exchange account can find the
-contract. See [docs/microstructure-alerts.md](docs/microstructure-alerts.md)
-for the planned alert layer.
+trading tools. `microstructure-alert.json` can turn them into scheduled
+order book + funding risk alerts, but it ships `enabled: false`. Symbols are
+CCXT unified native symbols such as `BTC/USDT:USDT`; the task constructs
+`accountId|symbol` aliceIds directly rather than using `searchContracts`.
+See [docs/microstructure-alerts.md](docs/microstructure-alerts.md).
 
 Persona and heartbeat prompts use a **default + user override** pattern:
 

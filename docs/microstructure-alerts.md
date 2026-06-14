@@ -1,6 +1,6 @@
 # Alice Microstructure Alert System
 
-This document captures the next monitoring milestone after live
+This document captures the microstructure monitor built after live
 `getOrderBook` and `getFundingRate` were exposed to Alice.
 
 ## Status
@@ -12,12 +12,17 @@ Implemented today:
 - Alice can read current funding-rate data through `getFundingRate`.
 - These calls are read-only and use public exchange market-data endpoints
   through the connected CCXT accounts.
+- `src/task/microstructure-alert/` implements scheduled, deterministic
+  order book + funding risk alerts.
+- The task ships **off by default** (`data/config/microstructure-alert.json`
+  has `enabled:false`) so baselines and noise can be reviewed before use.
 
 Not implemented yet:
 
-- Scheduled order book alerts.
-- Scheduled funding alerts.
 - Open-interest ingestion.
+- `wall_detected` / `wall_removed`.
+- Crowded long / crowded short.
+- Liquidity vacuum.
 - Whale / on-chain adapters.
 - Market regime classification.
 

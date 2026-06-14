@@ -32,22 +32,25 @@ and toggled by its own config section. On each tick:
 ```
 
 State persists to a `data/*-state.json` file so hysteresis survives
-restarts. All three skip work cleanly when their source is empty/unreachable.
+restarts. Each monitor skips work cleanly when its source is
+empty/unreachable.
 
 | Monitor | Interval | AI? | State file | Config |
 |---|---|---|---|---|
 | market-report | 30m | **events only** (RSI/price summaries) | `data/market-report-state.json` | `market-report.json` |
 | account-report | 5m | no — fully deterministic | `data/account-report-state.json` | `account-report.json` |
 | news-alert | 10m | no — fully deterministic | `data/news-alert-state.json` | `news-alert.json` |
+| microstructure-alert | 2m order book / 30m funding | no — fully deterministic | `data/microstructure-alert-state.json` | `microstructure-alert.json` (`enabled:false` by default) |
 
 Order book and funding-rate reads are exposed to Alice as live tools
-(`getOrderBook`, `getFundingRate`), but they are not scheduled alerts yet.
-The planned low-noise alert layer is documented in
+(`getOrderBook`, `getFundingRate`). The optional scheduled alert layer is
+implemented but ships off by default; see
 [microstructure-alerts.md](microstructure-alerts.md).
 
 ### Token cost
 
-account-report and news-alert never call the AI — zero tokens, always.
+account-report, news-alert, and microstructure-alert never call the AI —
+zero tokens, always.
 market-report spends tokens **only when an event fires** (see below), and
 even then it's a single small generation with the numbers pre-baked into
 the prompt (no tool calls). Calm ticks cost nothing.
