@@ -52,8 +52,8 @@ export const INIT_RETRY_BASE_MS = envInt('CCXT_INIT_RETRY_BASE_MS', 500)
 
 // ==================== CCXT-specific types (not part of IBroker) ====================
 
-import type { Contract } from '@traderalice/ibkr'
 import type { Position } from '../types.js'
+export type { FundingRate, OrderBook, OrderBookLevel } from '../types.js'
 
 /** Position with crypto-specific fields (leverage, margin).
  *  `liquidationPrice` is inherited from the base Position (string) — the
@@ -63,20 +63,3 @@ export interface CcxtPosition extends Position {
   margin?: number
 }
 
-export interface FundingRate {
-  contract: Contract
-  fundingRate: number
-  nextFundingTime?: Date
-  previousFundingRate?: number
-  timestamp: Date
-}
-
-/** [price, amount] */
-export type OrderBookLevel = [price: number, amount: number]
-
-export interface OrderBook {
-  contract: Contract
-  bids: OrderBookLevel[]
-  asks: OrderBookLevel[]
-  timestamp: Date
-}

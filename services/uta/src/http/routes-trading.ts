@@ -308,6 +308,36 @@ export function createTradingRoutes(ctx: EngineContext) {
     }
   })
 
+  app.post('/uta/:id/funding-rate', async (c) => {
+    const account = resolveAccount(ctx, c)
+    if (!account) return c.json({ error: 'Account not found' }, 404)
+    try {
+      const body = await c.req.json().catch(() => ({}))
+      const { Contract } = await import('@traderalice/ibkr')
+      const contract = Object.assign(new Contract(), body)
+      return c.json(await account.getFundingRate(contract))
+    } catch (err) {
+      return c.json({ error: err instanceof Error ? err.message : String(err) }, 500)
+    }
+  })
+
+  app.post('/uta/:id/order-book', async (c) => {
+    const account = resolveAccount(ctx, c)
+    if (!account) return c.json({ error: 'Account not found' }, 404)
+    try {
+      const body = await c.req.json().catch(() => ({}))
+      const { limit, ...contractBody } = body as Record<string, unknown>
+      const { Contract } = await import('@traderalice/ibkr')
+      const contract = Object.assign(new Contract(), contractBody)
+      const boundedLimit = typeof limit === 'number' && Number.isFinite(limit)
+        ? Math.max(1, Math.min(100, Math.floor(limit)))
+        : undefined
+      return c.json(await account.getOrderBook(contract, boundedLimit))
+    } catch (err) {
+      return c.json({ error: err instanceof Error ? err.message : String(err) }, 500)
+    }
+  })
+
   // Contract details — drilldown after a search hit. Body shape is a
   // `Contract` subset; when `aliceId` is present, `getContractDetails`
   // expands it internally via the broker's native-key decoder.

@@ -9,7 +9,7 @@
 
 import Decimal from 'decimal.js'
 import { Contract, Order, ContractDescription, ContractDetails, UNSET_DECIMAL } from '@traderalice/ibkr'
-import { BrokerError, type IBroker, type AccountInfo, type Position, type OpenOrder, type PlaceOrderResult, type Quote, type MarketClock, type AccountCapabilities, type BrokerHealth, type BrokerHealthInfo, type TpSlParams } from './brokers/types.js'
+import { BrokerError, type IBroker, type AccountInfo, type Position, type OpenOrder, type PlaceOrderResult, type Quote, type MarketClock, type FundingRate, type OrderBook, type AccountCapabilities, type BrokerHealth, type BrokerHealthInfo, type TpSlParams } from './brokers/types.js'
 import { TradingGit } from './git/TradingGit.js'
 import { recomputeCostBasisFromCommits } from './cost-basis.js'
 import { pnlOf } from './position-math.js'
@@ -599,6 +599,26 @@ export class UnifiedTradingAccount {
     const quote = await this._callBroker(() => this.broker.getQuote(resolved))
     this.stampAliceId(quote.contract)
     return quote
+  }
+
+  async getFundingRate(contract: Contract): Promise<FundingRate> {
+    if (typeof this.broker.getFundingRate !== 'function') {
+      throw new BrokerError('EXCHANGE', `Account "${this.label}" does not support funding-rate data.`)
+    }
+    const resolved = this._expandAliceIdIfNeeded(contract)
+    const result = await this._callBroker(() => this.broker.getFundingRate!(resolved))
+    this.stampAliceId(result.contract)
+    return result
+  }
+
+  async getOrderBook(contract: Contract, limit?: number): Promise<OrderBook> {
+    if (typeof this.broker.getOrderBook !== 'function') {
+      throw new BrokerError('EXCHANGE', `Account "${this.label}" does not support order-book data.`)
+    }
+    const resolved = this._expandAliceIdIfNeeded(contract)
+    const result = await this._callBroker(() => this.broker.getOrderBook!(resolved, limit))
+    this.stampAliceId(result.contract)
+    return result
   }
 
   getMarketClock(): Promise<MarketClock> {

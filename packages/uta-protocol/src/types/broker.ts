@@ -182,6 +182,24 @@ export interface MarketClock {
   timestamp?: Date
 }
 
+export interface FundingRate {
+  contract: Contract
+  fundingRate: number
+  nextFundingTime?: Date
+  previousFundingRate?: number
+  timestamp: Date
+}
+
+/** [price, amount] */
+export type OrderBookLevel = [price: number, amount: number]
+
+export interface OrderBook {
+  contract: Contract
+  bids: OrderBookLevel[]
+  asks: OrderBookLevel[]
+  timestamp: Date
+}
+
 // ==================== Broker health ====================
 
 export type BrokerHealth = 'healthy' | 'degraded' | 'offline'
@@ -273,6 +291,10 @@ export interface IBroker<TMeta = unknown> {
   getOrders(orderIds: string[]): Promise<OpenOrder[]>
   getOrder(orderId: string): Promise<OpenOrder | null>
   getQuote(contract: Contract): Promise<Quote>
+  /** Optional: supported by CCXT derivative/crypto brokers. */
+  getFundingRate?(contract: Contract): Promise<FundingRate>
+  /** Optional: supported by brokers with level-2/order-book APIs. */
+  getOrderBook?(contract: Contract, limit?: number): Promise<OrderBook>
   getMarketClock(): Promise<MarketClock>
 
   // ---- Capabilities ----

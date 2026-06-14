@@ -64,6 +64,10 @@ function summarizeOrder(o: OpenOrder, source: string, stringOrderId?: string) {
   }
 }
 
+function summarizeBookSide(levels: Array<[number, number]>): number {
+  return levels.reduce((sum, [, amount]) => sum + amount, 0)
+}
+
 const sourceDesc = (required: boolean, extra?: string) => {
   const base = `Account source — matches account id (e.g. "alpaca-paper") or provider (e.g. "alpaca", "ccxt").`
   const req = required
@@ -338,6 +342,72 @@ If this tool returns an error with transient=true, wait a few seconds and retry 
           // just hands over the aliceId stub.
           const contract = Object.assign(new Contract(), { aliceId })
           return { source: uta.id, ...await uta.getQuote(contract) }
+        } catch (err) {
+          return handleBrokerError(err)
+        }
+      },
+    }),
+
+    getFundingRate: tool({
+      description: `Query the current funding rate for a crypto perpetual/futures contract.
+Use searchContracts first and pass the returned aliceId. This is read-only and uses exchange public market data.`,
+      inputSchema: z.object({
+        aliceId: z.string().describe('Contract ID (format: accountId|nativeKey, from searchContracts)'),
+        source: z.string().optional().describe(sourceDesc(false)),
+      }),
+      execute: async ({ aliceId, source }) => {
+        const parsed = parseAliceId(aliceId)
+        if (!parsed) {
+          return { error: `Invalid aliceId "${aliceId}". Expected format: "accountId|nativeKey".` }
+        }
+        try {
+          const uta = await manager.resolveOne(source ?? parsed.utaId)
+          const contract = Object.assign(new Contract(), { aliceId })
+          return { source: uta.id, ...await uta.getFundingRate(contract) }
+        } catch (err) {
+          return handleBrokerError(err)
+        }
+      },
+    }),
+
+    getOrderBook: tool({
+      description: `Query live order book depth for a contract.
+Use searchContracts first and pass the returned aliceId. This is read-only and uses exchange public market data.`,
+      inputSchema: z.object({
+        aliceId: z.string().describe('Contract ID (format: accountId|nativeKey, from searchContracts)'),
+        limit: z.number().int().min(1).max(100).default(20).describe('Order book depth per side. Default: 20.'),
+        source: z.string().optional().describe(sourceDesc(false)),
+      }),
+      execute: async ({ aliceId, limit, source }) => {
+        const parsed = parseAliceId(aliceId)
+        if (!parsed) {
+          return { error: `Invalid aliceId "${aliceId}". Expected format: "accountId|nativeKey".` }
+        }
+        try {
+          const uta = await manager.resolveOne(source ?? parsed.utaId)
+          const contract = Object.assign(new Contract(), { aliceId })
+          const book = await uta.getOrderBook(contract, limit)
+          const bestBid = book.bids[0]?.[0]
+          const bestAsk = book.asks[0]?.[0]
+          const spread = bestBid != null && bestAsk != null ? bestAsk - bestBid : undefined
+          const mid = bestBid != null && bestAsk != null ? (bestBid + bestAsk) / 2 : undefined
+          const bidDepth = summarizeBookSide(book.bids)
+          const askDepth = summarizeBookSide(book.asks)
+          const totalDepth = bidDepth + askDepth
+          const imbalance = totalDepth > 0 ? (bidDepth - askDepth) / totalDepth : 0
+          return {
+            source: uta.id,
+            ...book,
+            summary: {
+              bestBid,
+              bestAsk,
+              spread,
+              spreadPct: spread != null && mid ? (spread / mid) * 100 : undefined,
+              bidDepth,
+              askDepth,
+              imbalance,
+            },
+          }
         } catch (err) {
           return handleBrokerError(err)
         }

@@ -16,6 +16,8 @@ import type {
   Position,
   OpenOrder,
   Quote,
+  FundingRate,
+  OrderBook,
   MarketClock,
   BrokerHealth,
   BrokerHealthInfo,
@@ -134,6 +136,23 @@ export class UTAAccountSDK {
     return this.client.post<Quote>(
       `/api/trading/uta/${encodeURIComponent(this.id)}/quote`,
       query,
+    )
+  }
+
+  getFundingRate(query: Contract | (Partial<Contract> & { aliceId?: string })): Promise<FundingRate> {
+    return this.client.post<FundingRate>(
+      `/api/trading/uta/${encodeURIComponent(this.id)}/funding-rate`,
+      query,
+    )
+  }
+
+  getOrderBook(
+    query: Contract | (Partial<Contract> & { aliceId?: string }),
+    limit?: number,
+  ): Promise<OrderBook> {
+    return this.client.post<OrderBook>(
+      `/api/trading/uta/${encodeURIComponent(this.id)}/order-book`,
+      limit == null ? query : { ...query, limit },
     )
   }
 
