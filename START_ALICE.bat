@@ -60,20 +60,31 @@ if errorlevel 1 (
 echo.
 
 echo [2/4] Checking dev ports...
-powershell -NoProfile -ExecutionPolicy Bypass -Command "$ports = 47331,47332,47333,5173; $active = Get-NetTCPConnection -State Listen -ErrorAction SilentlyContinue | Where-Object { $ports -contains $_.LocalPort }; if ($active) { $active | Select-Object LocalAddress,LocalPort,OwningProcess | Format-Table -AutoSize; exit 10 }"
+REM "Already running" requires ALL FOUR ports up. Checking for ANY port was a
+REM bug: UTA (47333) stays listening even when the Alice backend (47331)
+REM crashes, so a partial/broken stack would be misread as "already running"
+REM and never get restarted.  exit 10 = all healthy, 11 = partial, 0 = none.
+powershell -NoProfile -ExecutionPolicy Bypass -Command "$ports = 47331,47332,47333,5173; $up = @(Get-NetTCPConnection -State Listen -ErrorAction SilentlyContinue | Where-Object { $ports -contains $_.LocalPort } | Select-Object -ExpandProperty LocalPort -Unique); if ($up.Count -eq $ports.Count) { exit 10 } elseif ($up.Count -gt 0) { Write-Host ('       up: ' + ($up -join ', ') + '  |  down: ' + (($ports | Where-Object { $up -notcontains $_ }) -join ', ')); exit 11 }"
 if %ERRORLEVEL% EQU 10 (
   echo.
-  echo [INFO] Alice already appears to be running.
+  echo [INFO] Alice already appears to be running (all ports healthy).
   echo        UI:      http://localhost:5173/
   echo        Backend: http://127.0.0.1:47331/
   echo        UTA:     http://127.0.0.1:47333/
   echo.
   echo [INFO] Opening the Alice UI in your browser...
   start "" "http://localhost:5173/"
-  echo.
-  echo If the browser cannot connect, close the old Alice terminals/processes and run this file again.
   call :maybe_pause
   exit /b 0
+)
+if %ERRORLEVEL% EQU 11 (
+  echo.
+  echo [WARN] Alice is in a PARTIAL / unhealthy state - some ports are up, some are down.
+  echo        This usually means the backend crashed while UTA/UI stayed alive.
+  echo        Close EVERY Alice window (the pnpm dev terminal + any leftover
+  echo        UTA/writer windows), then run this file again for a clean start.
+  call :maybe_pause
+  exit /b 1
 )
 if errorlevel 1 (
   echo [WARN] Could not verify ports. Continuing startup...
