@@ -40,3 +40,7 @@ packages/ibkr/ref/CMakeLists.txt
 
 # Turborepo
 .turbo/
+
+# Python bytecode (services/okx_snapshot_writer.py)
+__pycache__/
+*.pyc
