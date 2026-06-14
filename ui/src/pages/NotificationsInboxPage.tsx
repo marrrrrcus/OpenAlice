@@ -12,6 +12,7 @@ const SOURCE_COLORS: Record<NotificationSource, string> = {
   'market-report': 'bg-blue-500/15 text-blue-400',
   'account-report': 'bg-red-500/15 text-red-400',
   'news-alert': 'bg-cyan-500/15 text-cyan-400',
+  'microstructure-alert': 'bg-orange-500/15 text-orange-400',
 }
 
 interface NotificationsInboxPageProps {
