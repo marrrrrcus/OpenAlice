@@ -403,6 +403,64 @@ export const newsAlertSchema = z.object({
 
 export type NewsAlertConfig = z.infer<typeof newsAlertSchema>
 
+/**
+ * Deterministic microstructure risk monitor (v1) — polls order book +
+ * funding for a small watchlist and TG-alerts on five relative signals
+ * measured against per-symbol adaptive baselines. Zero AI. Explains risk,
+ * never calls price direction. See src/task/microstructure-alert/ and
+ * docs/microstructure-alerts.md.
+ */
+export const microstructureAlertSchema = z.object({
+  enabled: z.boolean().default(false),
+  /** UTA id to pull order book + funding from — must be a CCXT crypto
+   *  account (only those implement getOrderBook/getFundingRate). Empty
+   *  falls back to the FIRST resolved account, which may not support them;
+   *  set this explicitly (e.g. a Binance UTA id) for a reliable source. */
+  source: z.string().default(''),
+  /** Watchlist — each entry is the CCXT unified native symbol (e.g.
+   *  "BTC/USDT:USDT"), used directly as the `accountId|symbol` aliceId.
+   *  NOT a searchContracts term and not "BTCUSDT". Keep small in v1
+   *  (rate-limit + noise). */
+  symbols: z.array(z.string()).default(['BTC/USDT:USDT', 'ETH/USDT:USDT', 'SOL/USDT:USDT']),
+  /** Order book is high-frequency. */
+  orderbookEvery: z.string().default('2m'),
+  /** Funding moves on an 8h cycle — poll slowly. */
+  fundingEvery: z.string().default('30m'),
+  /** EWMA smoothing for spread/depth baselines (smaller = smoother). */
+  baselineAlpha: z.number().positive().max(1).default(0.2),
+  /** Cap on retained funding history (for the percentile baseline). */
+  fundingHistoryCap: z.number().int().positive().default(80),
+  /** Notification cooldown / anti-flap window per (symbol, alert). */
+  cooldown: z.string().default('30m'),
+  rules: z.object({
+    /** Order-book samples before spread/depth rules may fire (warm-up). */
+    obWarmup: z.number().int().nonnegative().default(20),
+    /** Funding samples before funding rules may fire. Conservative on
+     *  purpose — percentile rank is sensitive with few samples. */
+    fundingWarmup: z.number().int().nonnegative().default(24),
+    spread: z.object({ medium: z.number(), high: z.number(), critical: z.number() })
+      .default({ medium: 2, high: 3, critical: 5 }),
+    depth: z.object({ medium: z.number(), high: z.number(), critical: z.number() })
+      .default({ medium: 0.7, high: 0.5, critical: 0.3 }),
+    imbalance: z.object({ medium: z.number(), high: z.number(), critical: z.number() })
+      .default({ medium: 3, high: 5, critical: 10 }),
+    fundingExtreme: z.object({ medium: z.number(), high: z.number(), critical: z.number() })
+      .default({ medium: 60, high: 80, critical: 94 }),
+    fundingChange: z.object({ medium: z.number(), high: z.number() })
+      .default({ medium: 0.0003, high: 0.0008 }),
+  }).default({
+    obWarmup: 20, fundingWarmup: 24,
+    spread: { medium: 2, high: 3, critical: 5 },
+    depth: { medium: 0.7, high: 0.5, critical: 0.3 },
+    imbalance: { medium: 3, high: 5, critical: 10 },
+    fundingExtreme: { medium: 60, high: 80, critical: 94 },
+    fundingChange: { medium: 0.0003, high: 0.0008 },
+  }),
+  statePath: z.string().default('data/microstructure-alert-state.json'),
+})
+
+export type MicrostructureAlertConfig = z.infer<typeof microstructureAlertSchema>
+
 export const toolsSchema = z.object({
   /** Tool names that are disabled. Tools not listed are enabled by default. */
   disabled: z.array(z.string()).default([]),
@@ -498,6 +556,7 @@ export type Config = {
   marketReport: MarketReportConfig
   accountReport: AccountReportConfig
   newsAlert: NewsAlertConfig
+  microstructureAlert: MicrostructureAlertConfig
   mcp: z.infer<typeof mcpSchema>
   connectors: z.infer<typeof connectorsSchema>
   news: z.infer<typeof newsCollectorSchema>
@@ -540,7 +599,7 @@ export async function loadConfig(): Promise<Config> {
   // is pending. See src/migrations/INDEX.md for the full list.
   await runMigrations()
 
-  const files = ['engine.json', 'agent.json', 'crypto.json', 'securities.json', 'market-data.json', 'compaction.json', 'ai-provider-manager.json', 'heartbeat.json', 'snapshot.json', 'auto-trading.json', 'market-report.json', 'account-report.json', 'news-alert.json', 'mcp.json', 'connectors.json', 'news.json', 'tools.json', 'webhook.json'] as const
+  const files = ['engine.json', 'agent.json', 'crypto.json', 'securities.json', 'market-data.json', 'compaction.json', 'ai-provider-manager.json', 'heartbeat.json', 'snapshot.json', 'auto-trading.json', 'market-report.json', 'account-report.json', 'news-alert.json', 'microstructure-alert.json', 'mcp.json', 'connectors.json', 'news.json', 'tools.json', 'webhook.json'] as const
   const raws = await Promise.all(files.map((f) => loadJsonFile(f)))
 
   const config: Config = {
@@ -557,11 +616,12 @@ export async function loadConfig(): Promise<Config> {
     marketReport:  await parseAndSeed(files[10], marketReportSchema, raws[10]),
     accountReport: await parseAndSeed(files[11], accountReportSchema, raws[11]),
     newsAlert:     await parseAndSeed(files[12], newsAlertSchema, raws[12]),
-    mcp:           await parseAndSeed(files[13], mcpSchema, raws[13]),
-    connectors:    await parseAndSeed(files[14], connectorsSchema, raws[14]),
-    news:          await parseAndSeed(files[15], newsCollectorSchema, raws[15]),
-    tools:         await parseAndSeed(files[16], toolsSchema, raws[16]),
-    webhook:       await parseAndSeed(files[17], webhookSchema, raws[17]),
+    microstructureAlert: await parseAndSeed(files[13], microstructureAlertSchema, raws[13]),
+    mcp:           await parseAndSeed(files[14], mcpSchema, raws[14]),
+    connectors:    await parseAndSeed(files[15], connectorsSchema, raws[15]),
+    news:          await parseAndSeed(files[16], newsCollectorSchema, raws[16]),
+    tools:         await parseAndSeed(files[17], toolsSchema, raws[17]),
+    webhook:       await parseAndSeed(files[18], webhookSchema, raws[18]),
   }
 
   // Spawn-time-fixed channel: when guardian (Electron main) spawns the
@@ -1060,6 +1120,7 @@ const sectionSchemas: Record<ConfigSection, z.ZodTypeAny> = {
   marketReport: marketReportSchema,
   accountReport: accountReportSchema,
   newsAlert: newsAlertSchema,
+  microstructureAlert: microstructureAlertSchema,
   mcp: mcpSchema,
   connectors: connectorsSchema,
   news: newsCollectorSchema,
@@ -1081,6 +1142,7 @@ const sectionFiles: Record<ConfigSection, string> = {
   marketReport: 'market-report.json',
   accountReport: 'account-report.json',
   newsAlert: 'news-alert.json',
+  microstructureAlert: 'microstructure-alert.json',
   mcp: 'mcp.json',
   connectors: 'connectors.json',
   news: 'news.json',

@@ -28,7 +28,7 @@ import { dataPath } from '@/core/paths.js'
 import { EventEmitter } from 'node:events'
 import type { MediaAttachment } from './types.js'
 
-export type NotificationSource = 'heartbeat' | 'cron' | 'manual' | 'task' | 'market-report' | 'account-report' | 'news-alert'
+export type NotificationSource = 'heartbeat' | 'cron' | 'manual' | 'task' | 'market-report' | 'account-report' | 'news-alert' | 'microstructure-alert'
 
 /**
  * Delivery urgency. 'normal' (default) lets each connector apply its own

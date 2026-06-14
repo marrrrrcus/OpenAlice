@@ -52,6 +52,7 @@ import { createHeartbeat } from './task/heartbeat/index.js'
 import { createMarketReport } from './task/market-report/index.js'
 import { createAccountReport } from './task/account-report/index.js'
 import { createNewsAlert } from './task/news-alert/index.js'
+import { createMicrostructureAlert } from './task/microstructure-alert/index.js'
 import { createAutoTradingScheduler } from './domain/auto-trading/scheduler.js'
 import { createMetricsListener } from './task/metrics/index.js'
 import { createAgentWorkListener } from './core/agent-work-listener.js'
@@ -338,6 +339,18 @@ async function main() {
     console.log(`news-alert: enabled (every ${config.newsAlert.every}, lookback ${config.newsAlert.lookback})`)
   }
 
+  // ==================== Microstructure Alert (Pump-driven, deterministic, zero-AI) ====================
+
+  const microstructureAlert = createMicrostructureAlert({
+    config: config.microstructureAlert,
+    manager: utaManager,
+    connectorCenter,
+  })
+  await microstructureAlert.start()
+  if (config.microstructureAlert.enabled) {
+    console.log(`microstructure-alert: enabled (order book ${config.microstructureAlert.orderbookEvery}, funding ${config.microstructureAlert.fundingEvery})`)
+  }
+
   // ==================== Auto-trading Scheduler (Pump-driven, Phase 1) ====================
 
   const autoTradingScheduler = createAutoTradingScheduler({
@@ -509,6 +522,7 @@ async function main() {
     marketReport.stop()
     accountReport.stop()
     newsAlert.stop()
+    microstructureAlert.stop()
     autoTradingScheduler.stop()
     metricsListener.stop()
     cronListener.stop()
