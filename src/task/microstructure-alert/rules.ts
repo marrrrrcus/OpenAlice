@@ -172,9 +172,9 @@ export function evalSpreadWidening(m: OrderBookMetrics, b: SymbolBaseline, cfg: 
   if (!sev) return null
   return {
     type: 'spread_widening', severity: sev,
-    data: `Spread widened to ${ratio.toFixed(1)}x its rolling baseline (now ${m.spreadPct.toFixed(4)}%).`,
-    interpretation: 'Short-term liquidity is deteriorating; market orders may face higher slippage.',
-    action: 'Avoid large market orders and avoid opening high-leverage positions during this period.',
+    data: `買賣價差拉開到平常的 ${ratio.toFixed(1)} 倍（目前 ${m.spreadPct.toFixed(4)}%）。`,
+    interpretation: '市場現在比較稀薄，用市價單成交容易吃到比較差的價格（滑價）。',
+    action: '這段時間別下大額市價單，也先別開高槓桿。',
   }
 }
 
@@ -185,9 +185,9 @@ export function evalDepthThinning(m: OrderBookMetrics, b: SymbolBaseline, cfg: M
   if (!sev) return null
   return {
     type: 'depth_thinning', severity: sev,
-    data: `Near-touch depth fell to ${(ratio * 100).toFixed(0)}% of its rolling baseline.`,
-    interpretation: 'Resting liquidity around the mid has thinned; the book can move faster on small flow.',
-    action: 'Reduce order size and avoid resting large passive orders into a thin book.',
+    data: `盤口附近的掛單量只剩平常的 ${(ratio * 100).toFixed(0)}%。`,
+    interpretation: '掛單變少了，一點點成交量就可能把價格推得很快。',
+    action: '把下單量改小，也別在這種稀薄的盤口掛大單等成交。',
   }
 }
 
@@ -200,11 +200,11 @@ export function evalOrderbookImbalance(m: OrderBookMetrics, cfg: MicroRuleConfig
   const heavy = ratio > 1 ? 'bid' : 'ask'
   return {
     type: 'orderbook_imbalance', severity: sev,
-    data: `Near-touch depth is ${skew.toFixed(1)}x heavier on the ${heavy} side.`,
+    data: `盤口附近，${heavy === 'bid' ? '買方' : '賣方'}掛單比另一邊多 ${skew.toFixed(1)} 倍。`,
     interpretation: heavy === 'bid'
-      ? 'Buy-side liquidity dominates; an upside sweep would face little resistance while downside is thinly supported.'
-      : 'Sell-side liquidity dominates; a downside sweep would face little resistance while upside is thinly supported.',
-    action: 'Treat the thin side as the asymmetric-risk direction; avoid market orders into it.',
+      ? '買單明顯比較多；價格往上衝阻力小，但要往下時下面接的單很少。'
+      : '賣單明顯比較多；價格往下殺阻力小，但要往上時上面接的單很少。',
+    action: '把掛單少的那一邊當成比較危險的方向，別往那邊下市價單。',
   }
 }
 
@@ -214,12 +214,12 @@ export function evalFundingExtreme(funding: number, b: SymbolBaseline, cfg: Micr
   const tail = Math.abs(pct - 50) * 2 // 0 at median, 100 at the extremes
   const sev = sevByThresholds(tail, cfg.fundingExtreme, 'gte')
   if (!sev) return null
-  const side = funding >= 0 ? 'longs paying shorts' : 'shorts paying longs'
+  const side = funding >= 0 ? '現在是做多的人付錢給做空的人' : '現在是做空的人付錢給做多的人'
   return {
     type: 'funding_extreme', severity: sev,
-    data: `Funding ${(funding * 100).toFixed(4)}% sits in the ${pct.toFixed(0)}th percentile of recent history (${side}).`,
-    interpretation: 'Crowded one-sided carry; positioning into the funding-paying side is increasingly expensive and squeeze-prone.',
-    action: 'Avoid adding to the funding-paying side here; the asymmetric risk is a squeeze against it.',
+    data: `資金費 ${(funding * 100).toFixed(4)}%，目前處在近期少見的極端區（第 ${pct.toFixed(0)} 百分位，${side}）。`,
+    interpretation: '太多人壓同一邊；抱這個方向要一直付資金費、成本越來越高，人擠人時也容易被反向甩出去。',
+    action: '現在別再往「要付資金費的那一邊」加碼；一旦反轉，這邊的單容易被一起掃掉。',
   }
 }
 
@@ -234,9 +234,9 @@ export function evalFundingChange(current: number, b: SymbolBaseline, cfg: Micro
   if (!sev) return null
   return {
     type: 'funding_change', severity: sev,
-    data: `Funding moved ${(b.lastFunding * 100).toFixed(4)}% → ${(current * 100).toFixed(4)}%${flipped ? ' (sign flip)' : ''}.`,
-    interpretation: 'A fast funding shift signals positioning rotating; the prior carry trade is unwinding.',
-    action: 'Re-check your exposure relative to the new funding regime before adding size.',
+    data: `資金費從 ${(b.lastFunding * 100).toFixed(4)}% 變成 ${(current * 100).toFixed(4)}%${flipped ? '（多空翻面）' : ''}。`,
+    interpretation: '資金費突然大幅變動，代表大家的多空部位正在換邊，之前那批單在出場。',
+    action: '加碼前先重新看一下自己的部位，現在的資金費環境跟剛剛不一樣了。',
   }
 }
 
@@ -244,12 +244,22 @@ export function evalFundingChange(current: number, b: SymbolBaseline, cfg: Micro
 
 const SEV_ICON: Record<MicroSeverity, string> = { medium: '🟡', high: '🟠', critical: '🔴' }
 
-/** Three-part Data / Interpretation / Action message for one symbol's signals. */
+/** Traditional-Chinese severity + alert-type labels for the pushed message. */
+const SEV_LABEL: Record<MicroSeverity, string> = { medium: '中等', high: '高', critical: '嚴重' }
+const TYPE_LABEL: Record<MicroAlertType, string> = {
+  spread_widening: '買賣價差變大',
+  depth_thinning: '掛單變少',
+  orderbook_imbalance: '掛單一邊倒',
+  funding_extreme: '資金費極端',
+  funding_change: '資金費大變動',
+}
+
+/** Three-part 數據 / 研判 / 建議 message for one symbol's signals. */
 export function buildMicroAlertMessage(symbol: string, signals: MicroSignal[]): string {
   const top = signals.reduce<MicroSeverity>((acc, s) => sevRank(s.severity) > sevRank(acc) ? s.severity : acc, 'medium')
-  const lines = [`${SEV_ICON[top]} ${symbol} microstructure — ${top.toUpperCase()}`]
+  const lines = [`${SEV_ICON[top]} ${symbol} 微結構警報 — ${SEV_LABEL[top]}`]
   for (const s of signals) {
-    lines.push('', `· ${s.type}`, `Data: ${s.data}`, `Interpretation: ${s.interpretation}`, `Action: ${s.action}`)
+    lines.push('', `· ${TYPE_LABEL[s.type]}`, `數據：${s.data}`, `研判：${s.interpretation}`, `建議：${s.action}`)
   }
   return lines.join('\n')
 }

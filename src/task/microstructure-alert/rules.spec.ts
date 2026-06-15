@@ -123,7 +123,7 @@ describe('orderbook_imbalance', () => {
   it('fires on skew, names the heavy side', () => {
     const r = evalOrderbookImbalance({ ...m, bidDepth: 40, askDepth: 10 }, CFG)
     expect(r?.severity).toBe('medium') // 4x bid-heavy
-    expect(r?.data).toContain('bid')
+    expect(r?.data).toContain('買方')
     expect(evalOrderbookImbalance({ ...m, bidDepth: 6, askDepth: 48 }, CFG)?.severity).toBe('high')     // 8x ask-heavy
     expect(evalOrderbookImbalance({ ...m, bidDepth: 6, askDepth: 60 }, CFG)?.severity).toBe('critical') // 10x ask-heavy
   })
@@ -170,10 +170,10 @@ describe('buildMicroAlertMessage', () => {
       { type: 'spread_widening', severity: 'high', data: 'D1', interpretation: 'I1', action: 'A1' },
       { type: 'funding_extreme', severity: 'critical', data: 'D2', interpretation: 'I2', action: 'A2' },
     ])
-    expect(msg).toContain('BTCUSDT microstructure — CRITICAL')
-    expect(msg).toContain('· spread_widening')
-    expect(msg).toContain('Data: D1')
-    expect(msg).toContain('Interpretation: I2')
-    expect(msg).toContain('Action: A2')
+    expect(msg).toContain('BTCUSDT 微結構警報 — 嚴重')
+    expect(msg).toContain('· 買賣價差變大')
+    expect(msg).toContain('數據：D1')
+    expect(msg).toContain('研判：I2')
+    expect(msg).toContain('建議：A2')
   })
 })

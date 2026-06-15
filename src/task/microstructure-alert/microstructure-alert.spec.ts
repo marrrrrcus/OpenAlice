@@ -92,7 +92,7 @@ describe('createMicrostructureAlert — tick orchestration (module-level)', () =
 
     expect(pushed).toHaveLength(1)
     expect(pushed[0].priority).toBe('high')
-    expect(pushed[0].text).toContain('spread_widening')
+    expect(pushed[0].text).toContain('買賣價差變大')
     expect(pushed[0].text).toContain('BTC/USDT:USDT')
   })
 
