@@ -148,30 +148,35 @@ export function PushApprovalPanel() {
     return () => clearInterval(id)
   }, [poll])
 
-  const handlePush = useCallback(async (accountId: string) => {
+  // expectedHash is the pendingHash from the status this row was rendered
+  // with. The backend fail-closes if it no longer matches the current
+  // pending — surfaced here as an error and a re-poll.
+  const handlePush = useCallback(async (accountId: string, expectedHash: string | null) => {
     setPushing(accountId)
     setConfirmingPush(null)
     setError(null)
     setLastResult(null)
     try {
-      const data = await api.trading.walletPush(accountId)
+      const data = await api.trading.walletPush(accountId, expectedHash ?? undefined)
       setLastResult({ accountId, data })
       await poll()
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Push failed')
+      await poll()
     } finally {
       setPushing(null)
     }
   }, [poll])
 
-  const handleReject = useCallback(async (accountId: string) => {
+  const handleReject = useCallback(async (accountId: string, expectedHash: string | null) => {
     setRejecting(accountId)
     setError(null)
     try {
-      await api.trading.walletReject(accountId)
+      await api.trading.walletReject(accountId, expectedHash ?? undefined)
       await poll()
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Reject failed')
+      await poll()
     } finally {
       setRejecting(null)
     }
@@ -270,7 +275,7 @@ export function PushApprovalPanel() {
                   <div className="flex items-center gap-2 text-xs">
                     <span className="text-text-muted">Execute {status.staged.length} op{status.staged.length > 1 ? 's' : ''}?</span>
                     <button
-                      onClick={() => handlePush(account.id)}
+                      onClick={() => handlePush(account.id, status.pendingHash)}
                       disabled={pushing !== null}
                       className="btn-primary-sm"
                     >
@@ -293,7 +298,7 @@ export function PushApprovalPanel() {
                       Approve & Push
                     </button>
                     <button
-                      onClick={() => handleReject(account.id)}
+                      onClick={() => handleReject(account.id, status.pendingHash)}
                       disabled={pushing !== null || rejecting !== null}
                       className="text-xs px-3 py-1.5 rounded font-medium border border-border text-text-muted hover:text-red hover:border-red/50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
                     >

@@ -97,11 +97,16 @@ export const tradingApi = {
     return fetchJson(`/api/trading/uta/${utaId}/wallet/status`)
   },
 
-  async walletReject(utaId: string, reason?: string): Promise<WalletRejectResult> {
+  // expectedHash binds the action to the pending commit the UI displayed.
+  // The backend fail-closes (409) if it's omitted or no longer current.
+  async walletReject(utaId: string, expectedHash?: string, reason?: string): Promise<WalletRejectResult> {
+    const payload: { reason?: string; expectedHash?: string } = {}
+    if (reason) payload.reason = reason
+    if (expectedHash !== undefined) payload.expectedHash = expectedHash
     const res = await fetch(`/api/trading/uta/${utaId}/wallet/reject`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(reason ? { reason } : {}),
+      body: JSON.stringify(payload),
     })
     if (!res.ok) {
       const body = await res.json().catch(() => ({}))
@@ -110,8 +115,12 @@ export const tradingApi = {
     return res.json()
   },
 
-  async walletPush(utaId: string): Promise<WalletPushResult> {
-    const res = await fetch(`/api/trading/uta/${utaId}/wallet/push`, { method: 'POST' })
+  async walletPush(utaId: string, expectedHash?: string): Promise<WalletPushResult> {
+    const res = await fetch(`/api/trading/uta/${utaId}/wallet/push`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(expectedHash !== undefined ? { expectedHash } : {}),
+    })
     if (!res.ok) {
       const body = await res.json().catch(() => ({}))
       throw new Error(body.error || `Push failed (${res.status})`)

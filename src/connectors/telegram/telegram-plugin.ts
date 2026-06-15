@@ -165,7 +165,13 @@ export class TelegramPlugin implements Plugin {
         } else if (data.startsWith('trading:')) {
           const parts = data.split(':')
           const action = parts[1]
-          const accountId = parts.slice(2).join(':')
+          // push/reject carry the pendingHash the button was built with, so
+          // the layout is `trading:<action>:<hash>:<accountId>`. The hash is
+          // 8 hex chars (no colon); accountId may contain colons (e.g.
+          // `OKX|BTC/USDT:USDT`), so it's the join of everything after.
+          const isApproval = action === 'push' || action === 'reject'
+          const cbHash = isApproval ? parts[2] : undefined
+          const accountId = isApproval ? parts.slice(3).join(':') : parts.slice(2).join(':')
 
           if (action === 'back') {
             // Return to overview
@@ -187,12 +193,28 @@ export class TelegramPlugin implements Plugin {
               await ctx.editMessageText(text, { reply_markup: keyboard }).catch(() => {})
               return
             }
-            if (action === 'push') {
-              const result = await uta.push()
-              await ctx.answerCallbackQuery({ text: `${result.submitted.length} submitted, ${result.rejected.length} rejected` })
-            } else {
-              await uta.reject()
-              await ctx.answerCallbackQuery({ text: 'Rejected' })
+            // Guard against a stale button: if the pending commit changed
+            // since this card was rendered, the carried hash won't match
+            // and the backend would fail-close anyway. Catch it here for a
+            // friendly message + panel refresh rather than re-reading the
+            // (possibly newer) pending and acting on it blindly.
+            if (cbHash !== status.pendingHash) {
+              await ctx.answerCallbackQuery({ text: '⚠️ Pending changed — refreshed, please re-check' })
+              const { text, keyboard } = await this.buildAccountPanel(engineCtx.utaManager, accountId)
+              await ctx.editMessageText(text, { reply_markup: keyboard }).catch(() => {})
+              return
+            }
+            try {
+              if (action === 'push') {
+                const result = await uta.push(cbHash)
+                await ctx.answerCallbackQuery({ text: `${result.submitted.length} submitted, ${result.rejected.length} rejected` })
+              } else {
+                await uta.reject(undefined, cbHash)
+                await ctx.answerCallbackQuery({ text: 'Rejected' })
+              }
+            } catch (err) {
+              // Backend fail-closed (e.g. hash mismatch raced past our check)
+              await ctx.answerCallbackQuery({ text: `⚠️ ${err instanceof Error ? err.message : 'Action blocked'}`.slice(0, 200) })
             }
             // Refresh panel after action
             const { text, keyboard } = await this.buildAccountPanel(engineCtx.utaManager, accountId)
@@ -563,9 +585,12 @@ export class TelegramPlugin implements Plugin {
       for (const op of gitStatus.staged) {
         lines.push(`  ${this.formatOperation(op)}`)
       }
+      // Embed the pendingHash in the button so approval binds to the exact
+      // commit shown here. If pending changes before the user taps, the
+      // carried hash won't match and the action is blocked (fail-closed).
       keyboard
-        .text('Approve', `trading:push:${uta.id}`)
-        .text('Reject', `trading:reject:${uta.id}`)
+        .text('Approve', `trading:push:${gitStatus.pendingHash}:${uta.id}`)
+        .text('Reject', `trading:reject:${gitStatus.pendingHash}:${uta.id}`)
         .row()
     } else if (gitStatus.staged.length > 0) {
       lines.push('')

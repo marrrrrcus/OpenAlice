@@ -404,9 +404,20 @@ export function createTradingRoutes(ctx: EngineContext) {
   app.post('/uta/:id/wallet/reject', async (c) => {
     const uta = ctx.utaManager.get(c.req.param('id'))
     if (!uta) return c.json({ error: 'Account not found' }, 404)
-    if (!uta.status().pendingMessage) return c.json({ error: 'Nothing to reject' }, 400)
+    const status = uta.status()
+    if (!status.pendingMessage) return c.json({ error: 'Nothing to reject' }, 400)
+    const body = await c.req.json().catch(() => ({}))
+    const expectedHash = typeof body.expectedHash === 'string' ? body.expectedHash : undefined
+    // Same fail-closed guard as push: reject must target the commit the
+    // user was shown. Rejecting the wrong (newer) pending commit silently
+    // is its own footgun — it discards a proposal the user never saw.
+    if (expectedHash !== status.pendingHash) {
+      return c.json(
+        { error: 'pendingHash mismatch — the pending commit changed; refresh and re-review', expected: status.pendingHash },
+        409,
+      )
+    }
     try {
-      const body = await c.req.json().catch(() => ({}))
       const reason = typeof body.reason === 'string' ? body.reason : undefined
       const result = await uta.reject(reason)
       return c.json(result)
@@ -416,10 +427,26 @@ export function createTradingRoutes(ctx: EngineContext) {
   })
 
   // Push (manual approval — the AI tool is hollowed out, only humans can push)
+  //
+  // Fail-closed pendingHash guard: the approver must echo back the
+  // pendingHash they were shown. If it's missing or no longer matches the
+  // current pending commit (e.g. the pending changed between display and
+  // click), we 409 and do NOT execute. The only failure mode this opens is
+  // blocking a legitimate approval — an acceptable fail-safe — never
+  // executing a commit the user didn't actually see.
   app.post('/uta/:id/wallet/push', async (c) => {
     const uta = ctx.utaManager.get(c.req.param('id'))
     if (!uta) return c.json({ error: 'Account not found' }, 404)
-    if (!uta.status().pendingMessage) return c.json({ error: 'Nothing to push' }, 400)
+    const status = uta.status()
+    if (!status.pendingMessage) return c.json({ error: 'Nothing to push' }, 400)
+    const body = await c.req.json().catch(() => ({}))
+    const expectedHash = typeof body.expectedHash === 'string' ? body.expectedHash : undefined
+    if (expectedHash !== status.pendingHash) {
+      return c.json(
+        { error: 'pendingHash mismatch — the pending commit changed; refresh and re-approve', expected: status.pendingHash },
+        409,
+      )
+    }
     try {
       const result = await uta.push()
       return c.json(result)

@@ -216,14 +216,24 @@ export class UTAAccountSDK {
 
   // ==================== Write / lifecycle (existing routes) ====================
 
-  push(): Promise<PushResult> {
-    return this.client.post<PushResult>(`/api/trading/uta/${encodeURIComponent(this.id)}/wallet/push`)
+  // `expectedHash` is the pendingHash the caller was shown. The backend
+  // fail-closes (409) if it's omitted or no longer matches the current
+  // pending commit, so callers must thread through the hash from the
+  // status they displayed — not re-read it at click time.
+  push(expectedHash?: string): Promise<PushResult> {
+    return this.client.post<PushResult>(
+      `/api/trading/uta/${encodeURIComponent(this.id)}/wallet/push`,
+      expectedHash !== undefined ? { expectedHash } : undefined,
+    )
   }
 
-  reject(reason?: string): Promise<RejectResult> {
+  reject(reason?: string, expectedHash?: string): Promise<RejectResult> {
+    const body: { reason?: string; expectedHash?: string } = {}
+    if (reason !== undefined) body.reason = reason
+    if (expectedHash !== undefined) body.expectedHash = expectedHash
     return this.client.post<RejectResult>(
       `/api/trading/uta/${encodeURIComponent(this.id)}/wallet/reject`,
-      reason !== undefined ? { reason } : undefined,
+      Object.keys(body).length > 0 ? body : undefined,
     )
   }
 
