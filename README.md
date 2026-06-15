@@ -31,7 +31,7 @@ Alice runs on your own machine, because trading involves private keys and real m
 ### Trading
 
 - **Unified Trading Account (UTA)** — multiple brokers (CCXT, Alpaca, Interactive Brokers) combine into unified workspaces. AI interacts with UTAs, never with brokers directly
-- **Trading-as-Git** — stage orders, commit with a message, push to execute. Full history reviewable with commit hashes
+- **Trading-as-Git** — stage orders, commit with a message, push to execute. Full history reviewable with commit hashes. Approvals are bound to the pending commit's hash (fail-closed): if the pending changed since you were shown it, the push/reject is blocked, not executed
 - **Guard pipeline** — pre-execution safety checks (max position size, cooldown, symbol whitelist) per account
 - **Account snapshots** — periodic and event-driven state capture with equity curve visualization
 
@@ -216,7 +216,7 @@ with its own history and guards. UTAs live inside the **UTA service**
 credentials are isolated to that carrier and never visible to the
 agent runtime that drives trading decisions.
 
-**Trading-as-Git** — The workflow inside each UTA. Stage orders, commit with a message, then push to execute. Push runs guards, dispatches to the broker, snapshots account state, and records a commit with an 8-char hash. Full history is reviewable like `git log` / `git show`.
+**Trading-as-Git** — The workflow inside each UTA. Stage orders, commit with a message, then push to execute. Push runs guards, dispatches to the broker, snapshots account state, and records a commit with an 8-char hash. Full history is reviewable like `git log` / `git show`. Push and reject are human-only and hash-bound: the approver (Telegram button or Web UI panel) must echo back the `pendingHash` they were shown, and the backend rejects with 409 — without executing — if it no longer matches the current pending commit. The only failure mode is blocking a legitimate approval (refresh and re-approve), never acting on a commit you didn't review.
 
 **Guard** — A pre-execution safety check that runs inside a UTA before orders reach the broker. Guards enforce limits (max position size, cooldown between trades, symbol whitelist) and are configured per-account. Think of it as ESLint for trading — automated rules that catch problems before they go live.
 

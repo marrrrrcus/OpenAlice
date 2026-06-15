@@ -34,6 +34,16 @@ Not yet shipped: auth gate between Alice and UTA (deliberately deferred
 deployment + admin-token session cookie path; physical UTA migration
 off the Alice host.
 
+### 🔒 Trading safety
+
+- **Hash-bound push/reject approval (fail-closed).** Approving or rejecting
+  a pending trade (Telegram button or Web UI panel) now requires echoing
+  back the `pendingHash` the approver was shown. The UTA backend returns
+  409 — without executing — if it is missing or no longer matches the
+  current pending commit, so a stale approval can no longer push a
+  different, newer commit than the one you reviewed. Only failure mode is
+  blocking a legitimate approval (refresh and re-approve).
+
 ### Config
 
 - Default crypto to bybit demo, securities to alpaca paper with tickers
