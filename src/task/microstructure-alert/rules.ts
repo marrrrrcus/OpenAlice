@@ -142,8 +142,13 @@ export interface MicroRuleConfig {
   spread: { medium: number; high: number; critical: number } // ratio vs baseline
   depth: { medium: number; high: number; critical: number }  // ratio vs baseline (<)
   imbalance: { medium: number; high: number; critical: number } // bid:ask ratio
-  fundingExtreme: { medium: number; high: number; critical: number } // |percentile-50|*2 i.e. tail %
-  fundingChange: { medium: number; high: number } // |delta| absolute (funding units)
+  /** Percentile cutoffs, direction-consistent: a positive funding fires on a
+   *  HIGH percentile (crowded longs), a negative funding on a LOW (mirrored)
+   *  percentile (crowded shorts). `minAbs` is an absolute funding floor (raw
+   *  units) below which nothing counts as extreme, whatever its percentile. */
+  fundingExtreme: { medium: number; high: number; critical: number; minAbs: number }
+  /** |delta| absolute (raw funding units). A sign flip alone no longer fires. */
+  fundingChange: { medium: number; high: number }
 }
 
 export interface MicroSignal {
@@ -210,9 +215,21 @@ export function evalOrderbookImbalance(m: OrderBookMetrics, cfg: MicroRuleConfig
 
 export function evalFundingExtreme(funding: number, b: SymbolBaseline, cfg: MicroRuleConfig): MicroSignal | null {
   if (b.fundingHistory.length < cfg.fundingWarmup) return null
+  // Absolute floor first: a near-zero funding is never "extreme", whatever its
+  // percentile rank in a near-zero history (this is what got 0.0008% values
+  // flagged before).
+  const t = cfg.fundingExtreme
+  if (Math.abs(funding) < t.minAbs) return null
   const pct = percentileRank(funding, b.fundingHistory)
-  const tail = Math.abs(pct - 50) * 2 // 0 at median, 100 at the extremes
-  const sev = sevByThresholds(tail, cfg.fundingExtreme, 'gte')
+  // Direction-consistent *tail strength*: a positive funding only counts as it
+  // climbs ABOVE the median (crowded longs), a negative funding only as it
+  // sinks BELOW it (crowded shorts). The wrong side gives tail <= 0 → silent.
+  // This keeps the original 60/80/94 thresholds (= positive p80/p90/p97,
+  // negative p20/p10/p3) rather than widening them to raw percentiles, while
+  // fixing the old |pct-50|*2 that mislabelled the cheap side as crowded.
+  const tail = funding > 0 ? (pct - 50) * 2 : (50 - pct) * 2
+  if (tail <= 0) return null
+  const sev = sevByThresholds(tail, t, 'gte')
   if (!sev) return null
   const side = funding >= 0 ? '現在是做多的人付錢給做空的人' : '現在是做空的人付錢給做多的人'
   return {
@@ -226,12 +243,15 @@ export function evalFundingExtreme(funding: number, b: SymbolBaseline, cfg: Micr
 export function evalFundingChange(current: number, b: SymbolBaseline, cfg: MicroRuleConfig): MicroSignal | null {
   if (b.lastFunding === null) return null
   const delta = current - b.lastFunding
-  const flipped = Math.sign(current) !== Math.sign(b.lastFunding) && current !== 0 && b.lastFunding !== 0
   const ad = Math.abs(delta)
+  // Magnitude-gated only. A sign flip no longer earns a free alert, so funding
+  // oscillating near zero (e.g. 0.0005% → -0.0003%) stays silent; the flip is
+  // now just a label on moves that already cleared the magnitude bar.
   let sev: MicroSeverity | null = null
   if (ad >= cfg.fundingChange.high) sev = 'high'
-  else if (ad >= cfg.fundingChange.medium || flipped) sev = 'medium'
+  else if (ad >= cfg.fundingChange.medium) sev = 'medium'
   if (!sev) return null
+  const flipped = Math.sign(current) !== Math.sign(b.lastFunding) && current !== 0 && b.lastFunding !== 0
   return {
     type: 'funding_change', severity: sev,
     data: `資金費從 ${(b.lastFunding * 100).toFixed(4)}% 變成 ${(current * 100).toFixed(4)}%${flipped ? '（多空翻面）' : ''}。`,

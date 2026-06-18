@@ -32,6 +32,7 @@ import {
   deleteCredential,
   credentialSchema,
   extractCredentialFromProfile,
+  microstructureAlertSchema,
   type Profile,
 } from './config.js'
 
@@ -512,5 +513,26 @@ describe('extractCredentialFromProfile', () => {
     const out = extractCredentialFromProfile(profile, existing)
     expect(out.profile.credentialSlug).toBe('anthropic-2')
     expect(out.credentials['anthropic-2'].apiKey).toBe('sk-2')
+  })
+})
+
+describe('microstructureAlertSchema — fundingExtreme.minAbs backward-compat', () => {
+  it('loads a pre-minAbs config and defaults minAbs to 0.00001', () => {
+    // A config saved before minAbs existed: fundingExtreme present, no minAbs.
+    const parsed = microstructureAlertSchema.parse({
+      enabled: true,
+      source: 'ccxt-x',
+      rules: {
+        fundingExtreme: { medium: 60, high: 80, critical: 94 }, // no minAbs
+      },
+    })
+    expect(parsed.rules.fundingExtreme.minAbs).toBe(0.00001)
+  })
+
+  it('honours an explicit minAbs when provided', () => {
+    const parsed = microstructureAlertSchema.parse({
+      rules: { fundingExtreme: { medium: 60, high: 80, critical: 94, minAbs: 0.00005 } },
+    })
+    expect(parsed.rules.fundingExtreme.minAbs).toBe(0.00005)
   })
 })

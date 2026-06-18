@@ -444,17 +444,17 @@ export const microstructureAlertSchema = z.object({
       .default({ medium: 0.7, high: 0.5, critical: 0.3 }),
     imbalance: z.object({ medium: z.number(), high: z.number(), critical: z.number() })
       .default({ medium: 3, high: 5, critical: 10 }),
-    fundingExtreme: z.object({ medium: z.number(), high: z.number(), critical: z.number() })
-      .default({ medium: 60, high: 80, critical: 94 }),
+    fundingExtreme: z.object({ medium: z.number(), high: z.number(), critical: z.number(), minAbs: z.number().nonnegative().default(0.00001) })
+      .default({ medium: 60, high: 80, critical: 94, minAbs: 0.00001 }),
     fundingChange: z.object({ medium: z.number(), high: z.number() })
-      .default({ medium: 0.0003, high: 0.0008 }),
+      .default({ medium: 0.00001, high: 0.00003 }),
   }).default({
     obWarmup: 20, fundingWarmup: 24,
     spread: { medium: 2, high: 3, critical: 5 },
     depth: { medium: 0.7, high: 0.5, critical: 0.3 },
     imbalance: { medium: 3, high: 5, critical: 10 },
-    fundingExtreme: { medium: 60, high: 80, critical: 94 },
-    fundingChange: { medium: 0.0003, high: 0.0008 },
+    fundingExtreme: { medium: 60, high: 80, critical: 94, minAbs: 0.00001 },
+    fundingChange: { medium: 0.00001, high: 0.00003 },
   }),
   statePath: z.string().default('data/microstructure-alert-state.json'),
 })

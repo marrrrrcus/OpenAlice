@@ -22,8 +22,8 @@ const CFG: MicroRuleConfig = {
   spread: { medium: 2, high: 3, critical: 5 },
   depth: { medium: 0.7, high: 0.5, critical: 0.3 },
   imbalance: { medium: 3, high: 5, critical: 10 },
-  fundingExtreme: { medium: 60, high: 80, critical: 94 }, // tail % = |pct-50|*2
-  fundingChange: { medium: 0.0003, high: 0.0008 },
+  fundingExtreme: { medium: 60, high: 80, critical: 94, minAbs: 0.00001 }, // directional pct cutoffs + abs floor
+  fundingChange: { medium: 0.00001, high: 0.00003 },
 }
 
 // A balanced book around mid 100: spread 0.1%, symmetric depth 10+10 within 0.5%.
@@ -136,31 +136,53 @@ describe('funding_extreme', () => {
   function hist(vals: number[]): SymbolBaseline {
     return { ...emptyBaseline(), fundingHistory: vals }
   }
+  // 100-point linear ramps so percentile == rank; all values well above minAbs.
+  // Pass an element of the ramp as the test value so percentileRank is exact.
+  const POS = Array.from({ length: 100 }, (_, i) => 0.0001 * (i + 1)) // POS[k] -> p(k+1)
+  const NEG = Array.from({ length: 100 }, (_, i) => -0.0001 * (i + 1)) // NEG[k] -> p(100-k)
+
   it('silent before funding warm-up', () => {
     expect(evalFundingExtreme(0.01, hist([0.001, 0.002]), CFG)).toBeNull()
   })
-  it('fires when funding is in the tail of its own history', () => {
-    const h = hist([0.0001, 0.0002, 0.0003, 0.0004, 0.0005, 0.0006])
-    // 0.0006 is the max -> 100th pct -> tail 100 -> critical
-    expect(evalFundingExtreme(0.0006, h, CFG)?.severity).toBe('critical')
+  // Positive funding only fires on the HIGH tail (crowded longs). 60/80/94 are
+  // tail strengths, i.e. positive p80/p90/p97.
+  it('positive: p60 silent, p80 medium, p90 high, p97 critical', () => {
+    const h = hist(POS)
+    expect(evalFundingExtreme(POS[59], h, CFG)).toBeNull()                  // p60 -> tail 20
+    expect(evalFundingExtreme(POS[79], h, CFG)?.severity).toBe('medium')    // p80 -> tail 60
+    expect(evalFundingExtreme(POS[89], h, CFG)?.severity).toBe('high')      // p90 -> tail 80
+    expect(evalFundingExtreme(POS[96], h, CFG)?.severity).toBe('critical')  // p97 -> tail 94
   })
-  it('silent near the median', () => {
-    const h = hist([0.0001, 0.0002, 0.0003, 0.0004, 0.0005, 0.0006])
-    expect(evalFundingExtreme(0.00035, h, CFG)).toBeNull()
+  // Negative funding only fires on the LOW tail (crowded shorts): p20/p10/p3.
+  it('negative: p20 medium, p10 high, p3 critical', () => {
+    const h = hist(NEG)
+    expect(evalFundingExtreme(NEG[80], h, CFG)?.severity).toBe('medium')    // p20 -> tail 60
+    expect(evalFundingExtreme(NEG[90], h, CFG)?.severity).toBe('high')      // p10 -> tail 80
+    expect(evalFundingExtreme(NEG[97], h, CFG)?.severity).toBe('critical')  // p3  -> tail 94
+  })
+  it('positive funding at a LOW percentile stays silent (direction fix)', () => {
+    expect(evalFundingExtreme(POS[19], hist(POS), CFG)).toBeNull()          // p20 positive -> tail -60
+  })
+  it('silent below the absolute floor regardless of percentile', () => {
+    const h = hist([0.000001, 0.000002, 0.000003, 0.000004, 0.000005, 0.000006])
+    expect(evalFundingExtreme(0.000006, h, CFG)).toBeNull() // p100 but < minAbs
   })
 })
 
 describe('funding_change', () => {
-  const b: SymbolBaseline = { ...emptyBaseline(), lastFunding: 0.0001 }
-  it('fires on a large delta', () => {
-    expect(evalFundingChange(0.0005, b, CFG)?.severity).toBe('medium')  // delta 0.0004
-    expect(evalFundingChange(0.001, b, CFG)?.severity).toBe('high')     // delta 0.0009
+  it('fires by magnitude only', () => {
+    const b: SymbolBaseline = { ...emptyBaseline(), lastFunding: 0.00002 }
+    expect(evalFundingChange(0.00004, b, CFG)?.severity).toBe('medium') // |delta| 0.00002
+    expect(evalFundingChange(0.00006, b, CFG)?.severity).toBe('high')   // |delta| 0.00004
   })
-  it('fires medium on a sign flip even if small', () => {
-    expect(evalFundingChange(-0.0001, b, CFG)?.severity).toBe('medium')
+  it('no longer fires on a small sign flip (noise fix)', () => {
+    const b: SymbolBaseline = { ...emptyBaseline(), lastFunding: 0.000005 }
+    // 0.000005 -> -0.000003 is a sign flip but |delta| 0.000008 < medium 0.00001
+    expect(evalFundingChange(-0.000003, b, CFG)).toBeNull()
   })
   it('silent on a small same-sign move', () => {
-    expect(evalFundingChange(0.00012, b, CFG)).toBeNull()
+    const b: SymbolBaseline = { ...emptyBaseline(), lastFunding: 0.00002 }
+    expect(evalFundingChange(0.000025, b, CFG)).toBeNull() // |delta| 0.000005 < medium
   })
 })
 
