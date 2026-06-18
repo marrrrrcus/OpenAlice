@@ -274,13 +274,40 @@ const TYPE_LABEL: Record<MicroAlertType, string> = {
   funding_change: '資金費大變動',
 }
 
-/** Three-part 數據 / 研判 / 建議 message for one symbol's signals. */
+/**
+ * Execution-only verdict appended to every alert: answers "can I execute this
+ * cheaply / safely right now", never direction. The 🟢/🟡/🔴 level is driven by
+ * the execution-cost signals only (spread + depth); funding / imbalance ride as
+ * advisory notes. Per docs/trade-proposal-principles.md the order book never
+ * calls long/short — direction stays with the user's strategy.
+ */
+function executionVerdict(signals: MicroSignal[]): string {
+  let level: 'ok' | 'caution' | 'avoid' = 'ok'
+  for (const s of signals) {
+    if (s.type !== 'spread_widening' && s.type !== 'depth_thinning') continue
+    if (s.severity === 'critical') { level = 'avoid'; break }
+    level = 'caution'
+  }
+  const head = level === 'avoid'
+    ? '🔴 執行結論：執行成本過高，這筆先別執行（別下市價單）'
+    : level === 'caution'
+      ? '🟡 執行結論：縮量、只限價，別追市價'
+      : '🟢 執行結論：價差與深度正常；若策略要做，執行條件尚可'
+  const notes: string[] = []
+  if (signals.some((s) => s.type === 'funding_extreme')) notes.push('· 資金費極端 → 別往「付資金費那側」加碼')
+  if (signals.some((s) => s.type === 'orderbook_imbalance')) notes.push('· 掛單一邊倒 → 薄的一側是被掃風險方向，別往那側下市價')
+  if (signals.some((s) => s.type === 'funding_change')) notes.push('· 資金費在換邊 → 加碼前先重看自己的部位')
+  return ['─────────────', head, ...notes, '（方向請看你的策略，盤口不喊多空）'].join('\n')
+}
+
+/** Three-part 數據 / 研判 / 建議 message + an execution-only verdict footer. */
 export function buildMicroAlertMessage(symbol: string, signals: MicroSignal[]): string {
   const top = signals.reduce<MicroSeverity>((acc, s) => sevRank(s.severity) > sevRank(acc) ? s.severity : acc, 'medium')
   const lines = [`${SEV_ICON[top]} ${symbol} 微結構警報 — ${SEV_LABEL[top]}`]
   for (const s of signals) {
     lines.push('', `· ${TYPE_LABEL[s.type]}`, `數據：${s.data}`, `研判：${s.interpretation}`, `建議：${s.action}`)
   }
+  lines.push('', executionVerdict(signals))
   return lines.join('\n')
 }
 
