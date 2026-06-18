@@ -81,6 +81,16 @@ describe('buildNewsAlert', () => {
     expect(msg).toContain('命中：halt')
     expect(msg).toContain('http://x')
   })
+
+  it('renders a 中譯 sub-line when a translation is present, keeping the original', () => {
+    const msg = buildNewsAlert([
+      { item: { time: new Date(), title: 'Exchange X halts withdrawals', content: '', metadata: { source: 'coindesk', link: 'http://x' } },
+        classification: { matched: true, tier: 'high', reason: 'halt' },
+        translatedTitle: '交易所 X 暫停提款' },
+    ])
+    expect(msg).toContain('Exchange X halts withdrawals') // original kept
+    expect(msg).toContain('↳ 中譯：交易所 X 暫停提款')
+  })
 })
 
 describe('createNewsAlert — module tick (dedup + push)', () => {
@@ -115,6 +125,35 @@ describe('createNewsAlert — module tick (dedup + push)', () => {
     expect(pushed[0].text).toContain('BTC ETF approved')
     expect(pushed[0].text).toContain('hack')
     expect(pushed[0].text).not.toContain('Daily market wrap')
+  })
+
+  it('calls translateTitles on the delivered titles and renders the 中譯', async () => {
+    const pushed: string[] = []
+    const newsSource = { getNewsV2: async () => [item('BTC ETF approved by regulator', { link: 'http://1' })] }
+    const connectorCenter = { notify: async (text: string) => { pushed.push(text); return {} as any } } as any
+    const seen: string[][] = []
+    const translateTitles = async (titles: string[]) => { seen.push(titles); return titles.map(() => '比特幣 ETF 獲准') }
+
+    const na = createNewsAlert({ config: baseConfig({ enabled: false }), newsSource, connectorCenter, translateTitles })
+    await na.start(); await na.runNow(); na.stop()
+
+    expect(seen).toEqual([['BTC ETF approved by regulator']]) // invoked once, on the delivered title
+    expect(pushed[0]).toContain('BTC ETF approved by regulator')
+    expect(pushed[0]).toContain('↳ 中譯：比特幣 ETF 獲准')
+  })
+
+  it('degrades to original-only when the translator throws', async () => {
+    const pushed: string[] = []
+    const newsSource = { getNewsV2: async () => [item('Bridge protocol hack drains funds', { link: 'http://3' })] }
+    const connectorCenter = { notify: async (text: string) => { pushed.push(text); return {} as any } } as any
+    const translateTitles = async () => { throw new Error('provider down') }
+
+    const na = createNewsAlert({ config: baseConfig({ enabled: false }), newsSource, connectorCenter, translateTitles })
+    await na.start(); await na.runNow(); na.stop()
+
+    expect(pushed).toHaveLength(1) // alert still delivered
+    expect(pushed[0]).toContain('Bridge protocol hack drains funds')
+    expect(pushed[0]).not.toContain('中譯')
   })
 
   it('does not re-alert the same item on a second tick (dedup persists)', async () => {

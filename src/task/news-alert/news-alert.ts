@@ -107,6 +107,10 @@ export function newsItemKey(item: NewsAlertItem): string {
 export interface MatchedNews {
   item: NewsAlertItem
   classification: NewsClassification
+  /** Optional zh-Hant translation of the (source-language) headline. Only
+   *  populated when a translator is wired and the call succeeds; rendering
+   *  always keeps the original title and adds the translation as a sub-line. */
+  translatedTitle?: string
 }
 
 export function buildNewsAlert(matches: MatchedNews[], overflow = 0): string {
@@ -114,7 +118,10 @@ export function buildNewsAlert(matches: MatchedNews[], overflow = 0): string {
     const source = m.item.metadata['source'] ?? '?'
     const link = m.item.metadata['link']
     const tail = link ? `\n  ${link}` : ''
-    return `· [${source}] ${m.item.title}（命中：${m.classification.reason}）${tail}`
+    // Translation rides as a sub-line under the original — the source
+    // headline stays authoritative, the 中譯 is a convenience.
+    const trans = m.translatedTitle ? `\n  ↳ 中譯：${m.translatedTitle}` : ''
+    return `· [${source}] ${m.item.title}（命中：${m.classification.reason}）${trans}${tail}`
   })
   // Overflow items aren't dropped — they ride the next tick. The note is
   // just so a capped burst doesn't look like it silently swallowed news.
@@ -140,6 +147,14 @@ export interface NewsAlertOpts {
   newsSource: NewsAlertSource
   connectorCenter: ConnectorCenter
   now?: () => number
+  /**
+   * Optional headline translator, invoked ONLY when an alert actually fires
+   * (never per idle tick), on just the delivered (capped) titles. Returns one
+   * entry per input title, in order; null/throw → that title shows untranslated.
+   * Injecting it keeps this module deterministic + testable; the AI wiring
+   * lives at the composition root.
+   */
+  translateTitles?: (titles: string[]) => Promise<(string | null)[]>
 }
 
 export interface NewsAlert {
@@ -216,6 +231,16 @@ export function createNewsAlert(opts: NewsAlertOpts): NewsAlert {
       // nothing is dropped — it's just spread across pushes.
       const capped = matches.slice(0, config.maxPerAlert)
       const overflow = matches.length - capped.length
+      // Translate only the delivered headlines, only now that we're firing —
+      // a failure degrades to original-only, never blocks the alert.
+      if (opts.translateTitles) {
+        try {
+          const zh = await opts.translateTitles(capped.map((m) => m.item.title))
+          capped.forEach((m, i) => { if (zh[i]) m.translatedTitle = zh[i] as string })
+        } catch (err) {
+          console.warn(`news-alert: title translation failed: ${err instanceof Error ? err.message : String(err)}`)
+        }
+      }
       await connectorCenter.notify(buildNewsAlert(capped, overflow), { source: 'news-alert', priority: 'high' })
       for (const m of capped) state.alertedKeys.push(newsItemKey(m.item))
     }

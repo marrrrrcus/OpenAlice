@@ -333,6 +333,22 @@ async function main() {
     config: config.newsAlert,
     newsSource: newsStore,
     connectorCenter,
+    // Headline translator — invoked only when an alert fires (rare), on the
+    // delivered titles only, via the active AI provider. One short prompt per
+    // alert; degrades to original-only on any failure. The monitor stays
+    // zero-AI on idle ticks.
+    translateTitles: async (titles) => {
+      if (titles.length === 0) return []
+      const prompt =
+        '把下列加密貨幣新聞標題翻成自然、精簡的繁體中文。規則：逐行對應、保持原順序；每行只輸出譯文本身，不要編號、不要原文、不要任何多餘說明。\n\n' +
+        titles.map((t, i) => `${i + 1}. ${t}`).join('\n')
+      const res = await agentCenter.ask(prompt)
+      const lines = res.text
+        .split('\n')
+        .map((s) => s.replace(/^\s*\d+[.、)]\s*/, '').trim())
+        .filter((s) => s.length > 0)
+      return titles.map((_, i) => lines[i] ?? null)
+    },
   })
   await newsAlert.start()
   if (config.newsAlert.enabled) {
