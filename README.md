@@ -54,12 +54,12 @@ Automation has two layers in OpenAlice. They're worth separating because each ev
 
 **Execution — *how* the trigger lands.** Today's heartbeat and cron jobs still use the pre-Workspace wiring: event → AgentCenter (the global chat) → AI run → optional `notify_user` → NotificationsStore → Connectors. That path is fine for "one-in, one-out" pings — heartbeat updates, scheduled market checks — and remains in production. The direction we're moving in: workspace-resident executions, where a scheduled event either fires a one-shot task inside a Workspace OR drives continued dialog on a Workspace's persistent Session. The scheduling layer above is shared either way.
 
-**Proactive monitoring & alerts.** Deterministic, interval-driven monitors push alerts to you (primarily Telegram) without being asked — they replace prompt-driven "check X every N minutes" jobs that burned tokens on every tick. Genuine alerts force-push to Telegram even when it isn't your active channel; calm periods stay quiet (silence = nothing to report).
+**Proactive monitoring & alerts.** Deterministic, interval-driven monitors push alerts to you (primarily Telegram) without being asked — they replace prompt-driven "check X every N minutes" jobs that burned tokens on every tick. Genuine alerts force-push to Telegram even when it isn't your active channel; calm periods stay quiet (silence = nothing to report). Alerts are pushed in Traditional Chinese.
 
 - **Market** — BTC/ETH price + RSI(14), alerting on RSI crossing overbought/oversold or a price move past a threshold (the only monitor that uses AI, and only to write the summary once an event fires)
 - **Account** — your connected broker accounts (OKX, Binance, …): drawdown thresholds, near-liquidation distance, net-value moves, and position open/close. Fully program-driven — zero tokens. Risk events get `🚨`, informational ones `📊`
-- **News** — breaking-headline keyword alerts from the RSS archive, tiered so it doesn't spam on every coin mention
-- **Microstructure** *(optional, off by default)* — order book + funding risk (spread widening, depth thinning, book imbalance, funding extreme/change) measured against per-symbol adaptive baselines. Explains risk, never calls price direction.
+- **News** — breaking-headline keyword alerts from the RSS archive, tiered so it doesn't spam on every coin mention; matched headlines are translated to Traditional Chinese (original kept) when an alert fires
+- **Microstructure** *(optional, off by default)* — order book + funding risk (spread widening, depth thinning, book imbalance, funding extreme/change) measured against per-symbol adaptive baselines. Each alert ends with an execution-only verdict (🟢 可執行 / 🟡 縮量限價 / 🔴 別碰) — it explains risk and execution quality, **never** calls price direction (see [trade-proposal-principles.md](docs/trade-proposal-principles.md))
 
 The first three are active by default; microstructure ships `enabled: false` until you pick a CCXT `source` account. See [docs/monitoring.md](docs/monitoring.md) and the [microstructure alert design](docs/microstructure-alerts.md) for the full design (hysteresis, cold-start handling, force-push priority).
 

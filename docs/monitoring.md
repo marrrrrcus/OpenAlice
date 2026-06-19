@@ -49,8 +49,10 @@ implemented but ships off by default; see
 
 ### Token cost
 
-account-report, news-alert, and microstructure-alert never call the AI —
-zero tokens, always.
+account-report and microstructure-alert never call the AI — zero tokens,
+always. news-alert is zero-AI on idle ticks too, and calls the AI **only when
+an alert fires**, to translate the delivered headlines to zh-Hant (degrades to
+original-only on failure — never per calm tick).
 market-report spends tokens **only when an event fires** (see below), and
 even then it's a single small generation with the numbers pre-baked into
 the prompt (no tool calls). Calm ticks cost nothing.
@@ -171,6 +173,14 @@ headlines from the RSS archive. **Fully deterministic** keyword matching.
 - **Calibration**: ~12% of 24h headlines match (~7/day) against real
   feeds; bare `SEC` / `exploit` over-match (regulatory opinion, scam
   warnings). Keyword lists are config-tunable.
+- **Headline translation (zh-Hant)**: when an alert fires, the delivered
+  (capped) headlines are translated to Traditional Chinese via the active AI
+  provider and rendered as a `↳ 中譯：` sub-line under the original — the source
+  headline stays authoritative. Invoked **only on fire**, on the delivered
+  titles, never per idle tick; any failure degrades to original-only and never
+  blocks the alert. The translator is an injected dependency (`createNewsAlert`
+  `translateTitles`) wired at the composition root, so this module stays pure
+  and testable.
 
 **Deferred — AI-digest fallback.** Batch the *non*-keyword-matching
 remainder through a cheap model to catch a "big thing that matched no

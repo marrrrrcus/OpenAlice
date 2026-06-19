@@ -75,36 +75,42 @@ Every alert must explain risk rather than call direction.
 
 ## Alert Format
 
-Every microstructure alert must use this three-part shape:
+Alerts are built in **Traditional Chinese**. Each signal uses a three-part
+shape — 數據 (data) / 研判 (interpretation) / 建議 (action) — and the whole
+alert closes with a single execution-only verdict footer.
 
 ```text
-Data:
-Alice saw X.
+🟠 BTC/USDT:USDT 微結構警報 — 高
 
-Interpretation:
-X implies Y risk.
+· 買賣價差變大
+數據：買賣價差拉開到平常的 7.0 倍（目前 0.0009%）。
+研判：市場現在比較稀薄，用市價單成交容易吃到比較差的價格（滑價）。
+建議：這段時間別下大額市價單，也先別開高槓桿。
 
-Action:
-Avoid Z behavior.
+· 掛單一邊倒
+數據：盤口附近，買方掛單比另一邊多 6.4 倍。
+研判：買單明顯比較多；價格往上衝阻力小，但要往下時下面接的單很少。
+建議：把掛單少的那一邊當成比較危險的方向，別往那邊下市價單。
+
+─────────────
+🟡 執行結論：縮量、只限價，別追市價
+· 掛單一邊倒 → 薄的一側是被掃風險方向，別往那側下市價
+（方向請看你的策略，盤口不喊多空）
 ```
 
-Example:
+**Execution verdict (footer).** The 🟢/🟡/🔴 line answers *"can I execute this
+cheaply / safely right now"*, never direction. It is driven by the
+execution-cost signals only — `spread_widening` + `depth_thinning`: critical →
+🔴「執行成本過高，這筆先別執行」; medium/high → 🟡「縮量、只限價，別追市價」;
+none → 🟢「價差與深度正常；若策略要做，執行條件尚可」. `funding_extreme` /
+`orderbook_imbalance` / `funding_change` ride as advisory notes and **never set
+the verdict**. The footer always closes with 「方向請看你的策略，盤口不喊多空」.
 
-```text
-BTCUSDT spread widening - HIGH
-
-Data:
-Spread widened to 3.4x its 1h median for 3 consecutive minutes.
-
-Interpretation:
-Short-term liquidity is deteriorating. Market orders may face higher slippage.
-
-Action:
-Avoid large market orders and avoid opening high-leverage positions during this period.
-```
-
-This keeps Alice in a risk-management role and prevents "price prediction"
-or trade-call framing.
+This keeps Alice in a risk-management role and prevents "price prediction" or
+trade-call framing — consistent with
+[trade-proposal-principles.md](trade-proposal-principles.md) (the order book
+never calls long/short). See `buildMicroAlertMessage` / `executionVerdict` in
+[rules.ts](../src/task/microstructure-alert/rules.ts).
 
 ## v1 Architecture
 
@@ -179,13 +185,26 @@ funding_change: delta vs previous confirmed funding
 Severity is then expressed *relative to the baseline*, e.g.:
 
 ```text
-spread_widening:  medium >2x / high >3x / critical >5x  (vs rolling median)
-depth_thinning:   medium <70% / high <50% / critical <30% (vs rolling median)
-funding_extreme:  medium >80th / high >90th / critical >97th percentile
+spread_widening:  medium ≥2x / high ≥3x / critical ≥5x    (vs rolling baseline)
+depth_thinning:   medium ≤70% / high ≤50% / critical ≤30% (vs rolling baseline)
+funding_extreme:  tail = (pct-50)*2 if funding>0 else (50-pct)*2;
+                  medium ≥60 / high ≥80 / critical ≥94, AND |funding| ≥ minAbs
+funding_change:   medium ≥ |delta| 0.00001 / high ≥ 0.00003  (raw funding units)
 ```
 
 Use a fixed threshold only as a cold-start bootstrap before enough history
 has accumulated to form a baseline.
+
+**Funding is direction-consistent + floored** (de-noise pass — see
+`evalFundingExtreme` / `evalFundingChange`). A *positive* funding only counts
+as it climbs the HIGH tail (crowded longs → positive p80/p90/p97); a *negative*
+funding only on the LOW tail (crowded shorts → p20/p10/p3). A positive funding
+sitting at a low percentile is "relatively cheap", not crowded, so it stays
+silent — the old `|pct-50|*2` mislabelled it. An absolute floor `minAbs`
+(default `0.00001` raw) drops near-zero values regardless of percentile.
+`funding_change` is **magnitude-gated only**: a sign flip near zero no longer
+earns a free alert (the flip is just a label on moves that already cleared the
+bar).
 
 ## State, Dedup, And Cooldown
 

@@ -44,6 +44,19 @@ off the Alice host.
   different, newer commit than the one you reviewed. Only failure mode is
   blocking a legitimate approval (refresh and re-approve).
 
+### 🔔 Alerts
+
+- **Telegram alerts render in Traditional Chinese.** Microstructure alerts
+  are plain-spoken zh-Hant; news-alert translates each matched headline to
+  zh-Hant on fire (original kept, degrades to original-only on failure).
+- **Funding alerts de-noised.** `funding_change` is magnitude-gated (a sign
+  flip near zero no longer fires); `funding_extreme` is direction-consistent
+  (positive → high tail, negative → low tail) with an absolute floor `minAbs`,
+  so a positive funding at a low percentile is no longer mislabelled "crowded".
+- **Microstructure execution verdict.** Each alert ends with an execution-only
+  footer (🟢 可執行 / 🟡 縮量限價 / 🔴 別碰) driven by spread + depth; funding
+  and imbalance are advisory notes only. It never calls price direction.
+
 ### Config
 
 - Default crypto to bybit demo, securities to alpaca paper with tickers
