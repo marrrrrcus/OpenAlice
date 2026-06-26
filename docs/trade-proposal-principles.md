@@ -119,6 +119,26 @@ the most reliable; funding-crowding is moderate; RSI and order-book
 imbalance are the weakest and most gameable. A flimsy imbalance read must
 not carry the same veto power as "near liquidation."
 
+## Venue consistency — the execution-quality gate must read the venue you trade on
+
+The order-book / funding gates (`spread`, `depth`, `imbalance`, `funding`)
+answer *"is it cheap / safe to execute **here, now**"*. That answer is only
+valid for the **exact exchange the order will hit**. OpenAlice's data sources
+are split across venues today: the OKX snapshot writer feeds market-report and
+the `all_clear` signal, `microstructure-alert` reads **Binance** (`ccxt-custom`),
+and accounts exist on both. So:
+
+> **execution venue = data venue.** A proposal that will execute on OKX must
+> have its execution-quality gate read OKX's order book / funding — never
+> Binance's. A different exchange is a different book; "spread normal on
+> Binance" says nothing about OKX.
+
+If the matching venue's microstructure data isn't available, the gate must
+degrade to **advisory only** (or `BLOCK`) — never `ALLOW` a market order on a
+book it can't see. Borrowing one exchange's "looks liquid" to justify
+executing on another is exactly the "looks fine, but it's the wrong venue"
+trap.
+
 ## The proposal pipeline
 
 ```
@@ -172,6 +192,22 @@ proposal layer must route through them:
    in the minutes before a human taps Approve. (Not yet built; required
    when the proposal layer is.)
 
+## The safety flow makes execution safe, not the strategy profitable
+
+`pendingHash`, the human approval gate, and stage → commit → push protect
+against *operational* accidents — mis-clicks, stale approvals, executing a
+commit you didn't see. They do **not** make a proposal *good*. A perfectly
+safe pipeline wrapped around a weak `directionSource` is just **a very safe
+way to execute bad trades**.
+
+The difficulty is lopsided. Steps 2–7 of the pipeline (gates, staging, the TG
+card, hash-bound approval, push) are the easy, low-risk ~80% — most of that
+plumbing already exists. Step 1 — a `directionSource` with a *real, validated
+edge* — is the hard ~20% that actually decides profit and loss, and it is
+**orthogonal to safety**. Do not let "the proposal machine is built and safe"
+become confidence that it will make money. Validate the strategy (see "What to
+verify") as a separate, harder problem from shipping the plumbing.
+
 ## What this prevents (anti-goals)
 
 - Alice must **never** become a price-prediction / auto-signal system.
@@ -179,6 +215,10 @@ proposal layer must route through them:
 - The system must **never** originate a direction to fill a vacuum.
 - Execution signals must **never** leak back in as conviction (no
   enlarging, no creating trades).
+- The execution-quality gate must **never** `ALLOW` on a different venue's
+  order book than the one the order will actually hit.
+- "Safe to execute" must **never** be read as "good to execute" — the
+  approval gate is not evidence of edge.
 
 If, during implementation, Alice starts "looking like it calls the market,"
 the logic has quietly inverted from a risk-审核 system into a prediction
