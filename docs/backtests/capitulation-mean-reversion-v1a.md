@@ -230,6 +230,64 @@ v1a is only allowed to become a `backtested_rule:*` candidate if all hold:
 
 If it only works in one quarter, it is rejected like v0.
 
+## Research verdict — rejected under current v1a settings (2026-06)
+
+The v1a simulator was run as a standalone research artifact at
+`C:\Users\Marcus\OneDrive\Desktop\capitulation_v0_backtest\`:
+
+- `v1a_sim.py` — liquidity-sweep + RVOL simulator
+- `v1a_trades.csv` — mainline trade list
+
+Mainline detector:
+
+```text
+BTC only
+sweep N = 48
+RVOL M = 48
+RVOL >= 3.0
+d2 24h close-to-close return <= -5%
+regime + close-holds
+```
+
+Mainline result:
+
+| Candidates | Trades | Avg / trade | Profit factor | Random percentile |
+|---:|---:|---:|---:|---:|
+| 6 | 6 | +0.095% | 1.09 | 83.5 |
+
+This fails the pre-registered passing bar:
+
+- **Sample collapse:** 22.5 months produced only 6 trades. That is not enough
+  to validate a strategy, even if the average return is slightly positive.
+- **Quarter concentration:** 2025Q1 contributed the only meaningful positive
+  cluster.
+- **Leave-one-quarter-out failure:** removing 2025Q1 leaves only 2 trades with
+  average return **-1.900%**.
+- **Weak random comparison:** 83.5th percentile is not strong enough given the
+  tiny sample and high random dispersion.
+
+Sensitivity results do not rescue the hypothesis:
+
+- Positive-looking variants are mostly `n = 3..6`, which is too small to treat
+  as evidence.
+- Removing the d2 filter creates more samples (`n ~= 29..79`) but generally
+  turns the result negative.
+- Therefore, sweep + RVOL did not clearly improve candidate quality; it mostly
+  reduced an already rare v0 event set into an untestably small sample.
+
+Precise interpretation:
+
+> v1a does **not** prove that liquidity sweeps or RVOL are invalid market
+> concepts. It proves that, under this BTC-only / 2-year / strict-filter setup,
+> the rule cannot produce enough time-stable evidence to qualify as a
+> `backtested_rule:*`.
+
+**Final v1a decision:** do not trade, do not promote to proposal, do not use as
+`directionSource`, and do not add funding / OI / liquidation / news layers just
+to rescue it. Any future continuation must start as a new, separately
+pre-registered hypothesis with either more independent data or a different
+research question.
+
 ## Expected failure modes
 
 - Too few candidates after adding sweep + RVOL.
