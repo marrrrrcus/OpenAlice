@@ -16,10 +16,12 @@ worth re-pinning (a future v2). If not, the funding-exhaustion family is closed
 on BTC-only / 2-year data. **v1 produces no signal, no `directionSource`, no
 proposal, no trade — it is evidence about a hypothesis, nothing more.**
 
-> **Status:** PRE-REGISTERED DRAFT. Not run. This file fixes every
-> result-swinging definition — sign conventions, no-lookahead standardization,
-> the overlap/independence handling, the primary cell, and the passing bar —
-> before any code exists.
+> **Status:** RUN — NO PULSE (well-powered), 2026-06. Both sides have adequate
+> sample (positive 47 episodes, negative 60 — **not** sample-starved); neither
+> passes Gates A/B/C. The funding-exhaustion family is **closed** on BTC-only /
+> 2-year data: no `directionSource`, no v2, no proposal, no trade. Pre-registered
+> and committed (`180cd8c`) **before** the run — the gates were fixed before any
+> result was seen. See "Research verdict" below.
 
 ## What v1 is and is NOT
 
@@ -170,9 +172,59 @@ per-side slope + bootstrap-CI, p90/p95/p99 tail means, monthly-block random null
 distribution, LOQO / leave-one-month CSV, episode counts per side. Deterministic
 seed; no one-off console tables.
 
-## Research verdict
+## Research verdict — NO PULSE (well-powered, family closed, 2026-06)
 
-> _Pending — not yet run._
+Run as a standalone study at
+`C:\Users\Marcus\OneDrive\Desktop\funding_pulse_v1_backtest\` (read-only on V8,
+no Alice runtime): `funding_pulse_v1_study.py`, `output.json`, `events.csv`, and
+per-side `boot_slope_*.csv` (Gate-A slope bootstrap), `random_null_*.csv`
+(Gate-B null), `loqo_*.csv`, `lom_*.csv`. seed=42, B=2000 monthly-block
+resamples, **2046 usable events**. Funding-row ms jitter (max **16 ms**) is
+snapped to the settlement minute before the `F+1m` price anchor — which left the
+verdict unchanged; only small numeric drift appeared after the timestamp-anchor
+audit fix.
+
+**Positive side (crowded longs → fade short) — the core exhaustion thesis,
+falsified:**
+
+| gate | value | pass |
+|---|---|---|
+| sample | 47 episodes (≥30) | testable |
+| A — side-half slope | **−0.0054**, block-CI [−0.016, +0.004] | ❌ wrong sign, CI spans 0 |
+| B — p90 tail mean (24h) | **−0.15%**, random **17th** pct | ❌ loses, worse than random |
+| C — LOQO / LOM | min slope −0.009, min tail −0.24% | ❌ |
+| support p90/p95/p99 | −0.02% / −0.54% / **−0.93%** | strengthens the *wrong* way |
+
+Extreme positive funding does **not** predict a downward reversion; it weakly
+associates with *continuation* (the fade-short tail loses more the more extreme
+the funding). A directional falsification, not a null.
+
+**Negative side (crowded shorts → fade long) — a weak right-direction hint that
+survives nothing:**
+
+| gate | value | pass |
+|---|---|---|
+| sample | 60 episodes (≥30) | testable |
+| A — side-half slope | +0.0006, block-CI [−0.002, +0.003] | ❌ insignificant (CI spans 0) |
+| B — p90 tail mean (24h) | +0.10%, random **71st** pct | ❌ below the 90th bar |
+| C — LOQO / LOM | min slope −0.0001, min tail −0.04% | ❌ flips sign (one quarter) |
+| support p90/p95/p99 | +0.11% / +0.14% / +0.25% | mild, right direction |
+
+The sign points the right way and mildly strengthens, but it is not significant,
+does not clear the random bar, and is carried by a single quarter (LOQO flips it).
+
+**Decision (per the pre-registered rule):** no side passes A+B+C, and **both
+sides have ≥30 episodes** — a **well-powered NO, not INCONCLUSIVE**. The
+**funding-exhaustion family is CLOSED on BTC-only / V8 22.5-month data:** there
+is no price-reversion pulse to gate a trade on. **No `directionSource`, no v2, no
+proposal, no trade.** A future attempt needs a materially different premise or
+independent data (longer history / other venues / other assets, each separately
+pre-registered) — not a re-tune of this one.
+
+**What closed here that v0 could not:** v0 was *untestable* (sample-starved after
+its confirmation gate). v1 stripped the trade machinery and measured the raw
+price question with block-aware inference on 47 / 60 episodes — enough for a
+*conclusive* answer. The funding line is not "unproven"; it is **answered**.
 
 ## Related
 
