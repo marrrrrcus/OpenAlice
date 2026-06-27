@@ -8,9 +8,10 @@ written — and so, *if* it validates, it becomes a concrete
 [trade-proposal-principles.md](../trade-proposal-principles.md). Until it
 validates, it is **not** allowed to drive any proposal.
 
-> **Status:** spec only. No backtester, no signal, no execution. v0 is
-> deliberately narrow: OHLCV + BTC 200D SMA + a sharp drop + a close that holds
-> + next-bar entry + explicit target / SL / time stop. Nothing else.
+> **Status:** tested and rejected as a `directionSource`. v0 remains a research
+> artifact only: no signal, no proposal, no execution. The candidate detector
+> and event simulator were built and run against the v8 Binance warehouse; the
+> rule did **not** pass time-stability / leave-one-quarter-out validation.
 
 ## Why two layers (the core methodological rule)
 
@@ -128,6 +129,46 @@ Win rate is **not** the headline. Report:
   Definition sensitivity (why the formula must be pinned): d1 = 65 / 272,
   d3 = 45 / 200. ETH yields ~4× BTC — report metrics **per symbol**; don't let
   ETH's count mask BTC's behaviour.
+
+## Research verdict — rejected as a direction source (2026-06)
+
+The event simulator was built as a standalone research artifact at
+`C:\Users\Marcus\OneDrive\Desktop\capitulation_v0_backtest\` and preserves:
+
+- `sim.py` — event simulator
+- `output.json` — full run + sensitivity output
+- `trades_main_d2_1h.csv` — mainline trade list
+- `candidates_main_d2_1h.csv` — mainline candidate list
+- `btc_time_stability.json` / `.csv` — BTC time-stability checks
+- `btc_leave_one_quarter_out.csv` — leave-one-quarter-out concentration check
+
+Mainline result (`d2`, 1h, costs included):
+
+| Symbol | Trades | Avg / trade | Profit factor | Random percentile | Verdict |
+|---|---:|---:|---:|---:|---|
+| BTCUSDT | 20 | +0.251% | 1.38 | 99.6 | Research lead only; fails time stability |
+| ETHUSDT | 77 | −0.430% | 0.60 | 2.0 | Rejected |
+
+**BTC d2 is not time-stable.** The apparent positive result is concentrated in
+2025Q1. Leave-one-quarter-out:
+
+- Full BTC d2: 20 trades, avg +0.251%, sum +5.03%.
+- Excluding 2025Q1: 9 trades, avg **−0.114%**, sum −1.03%.
+
+That means the rule does not "survive a change in time"; it mainly survives one
+quarter. This fails the constitution's standard for a `backtested_rule:*`
+direction source.
+
+**BTC d3 is not a rescue of v0.** d3 was a sensitivity check, not the pre-pinned
+mainline. It behaves better than d2, but after excluding 2025Q1 it is effectively
+flat (about +0.033% / trade, inside costs / slippage / sampling noise). It may
+be parked as a new, separately pre-registered v1 hypothesis:
+`BTC capitulation mean reversion v1 / d3`. It must not be described as "v0
+worked."
+
+**Final v0 decision:** do not trade, do not promote to proposal, do not use as
+`directionSource`. If this line is revisited, start a fresh v1 spec with a new
+pre-registered hypothesis and independent validation data.
 
 ## Must pin before implementing (open spec gaps)
 
