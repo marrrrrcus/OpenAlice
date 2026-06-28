@@ -15,8 +15,14 @@ as a `directionSource` under
 [trade-proposal-principles.md](../trade-proposal-principles.md). It is **not** a
 short signal and **not** alpha (see framing).
 
-> **Status:** PRE-REGISTERED DRAFT. Not run. No signal, no proposal, no
-> execution until it validates.
+> **Status:** RUN — REJECTED (2026-06), but a *disciplined near-miss*, not a
+> dud. Spec was locked at `b72ee3e` and committed **before** the run; the study
+> was verified to implement it faithfully. BTC mainline **beat buy-and-hold on
+> every aggregate metric** (CAGR, maxDD, Calmar, Sharpe, final equity) yet
+> **failed Gate 3**: the 200-day filter did not protect in the 2019–2020 fast
+> crash (strategy −50.10% vs B&H −49.43%, a 0.67 pp near-tie). Per the
+> pre-registered "smaller DD in *every* major bear" rule, that is a REJECT — not
+> a `directionSource`. See verdict below.
 
 ## Honest framing — what this is and is NOT
 
@@ -199,9 +205,85 @@ equity curves (strategy + B&H, per asset), per-cycle drawdown table, flips log,
 metrics JSON (CAGR/maxDD/Calmar/Sharpe/turnover/missed-upside per asset),
 sensitivity grid. Deterministic; no one-off console tables.
 
-## Research verdict
+## Research verdict — REJECTED (disciplined near-miss, 2026-06)
 
-> _Pending — not yet run._
+Run as a standalone study at
+`C:\Users\Marcus\OneDrive\Desktop\regime_trend_v0_backtest\` (read-only; data
+fetched from Binance/Yahoo public APIs; no Alice runtime). `config.json` records
+`spec_commit: b72ee3e`. The implementation was **independently verified against
+the locked spec** — no-lookahead (signal on completed close, execute next open),
+±3% band hysteresis, **benchmark common-start on the strategy's first tradable
+day** (2018-03-05, not listing), **cost per executed leg** (0.10%) + cash 0%,
+**non-overlapping running-ATH bears incl. the terminal episode**, and the verdict
+taken from **BTC only**. All faithful.
+
+**BTC mainline (SMA200 ±3%, long/flat, costs in) — strong in aggregate:**
+
+| metric | strategy | buy-and-hold |
+|---|---|---|
+| CAGR | **30.28%** | 24.78% |
+| max drawdown | **−52.36%** | −76.63% |
+| Calmar | **0.578** | 0.323 |
+| Sharpe | 0.826 | 0.671 |
+| final equity (×) | **8.84** | 6.20 |
+| turnover | 1.58 round trips/yr | — |
+| time in market | 53% | 100% |
+
+It beat buy-and-hold on **every** aggregate metric — there was no CAGR/upside
+sacrifice (final equity ended *above* B&H).
+
+**Why it is REJECTED — the per-cycle gate (set before the run):**
+
+| gate | result | pass |
+|---|---|---|
+| 1 — maxDD ≤ 0.70 × B&H | ratio 0.683 | ✅ |
+| 2 — Calmar > B&H | 0.578 > 0.323 | ✅ |
+| 4 — ≤ 6 round trips/yr | 1.58 | ✅ |
+| **3 — smaller DD in *every* major bear + split-half** | split-half ✅, but **one bear failed** | ❌ |
+
+The failing bear is the **2019-06-26 → 2020-03-12** episode (the slow 2019
+decline running into the **COVID fast crash**): strategy **−50.10%** vs B&H
+**−49.43%** — a 0.67 pp near-tie, but **not smaller**, so Gate 3 fails. The
+aggregate −52% maxDD came from the *slow* 2021–2023 bear, which the filter **did**
+cushion; its hole is the **fast V-crash**, exactly where protection matters most.
+
+This is a **harsh-but-correct** reject. A less disciplined process would accept a
+strategy that wins on every headline number. But Gate 3 was pre-registered to
+catch precisely "the drawdown protection is not universal," and relaxing it now
+(to call −50.10 vs −49.43 "a tie") would be moving the goalpost after seeing the
+data — the one thing pre-registration exists to prevent. **REJECTED as a
+`directionSource`; not promoted; no proposal, no trade.**
+
+**Sensitivity (cannot rescue v0 — recorded honestly):** of six pre-registered
+variants, **only `SMA150 ±3%` passed all four gates**. But it is a **single
+fragile grid point flanked by failures** — `SMA100` fails Gate 1 (whipsaw),
+`SMA200`/`SMA250` fail Gate 3 (the COVID bear). That shape carries **strong
+overfit risk — consistent with a COVID-specific fit**, not a robust plateau.
+(Strictly: we can show only that it is an isolated grid pass that happens to fix
+exactly the COVID weakness; we cannot *prove* it is curve-fit.) It may **seed a
+separately pre-registered `regime-trend-v1`**, but its grid-pass is discounted
+for multiple comparisons (1 of 6) and **does not count as validation** and
+**cannot change v0's REJECT**.
+
+**Cross-asset support (support-only, mixed):** BTC and SPX both reduce maxDD and
+beat B&H on Calmar but fail the per-cycle gate; ETH and Gold are weaker (fail
+Gate 1). The cross-asset picture is **mixed**, so it does not strongly establish
+a universal effect — and is moot regardless, since the BTC mainline failed and
+support cannot rescue it.
+
+## What v0 tells us about v1 (clear signpost)
+
+The death cause is specific and useful: **a 200-day regime filter cushions slow
+bears but cannot react to a fast V-crash.** So the next hypothesis is not "tune
+the SMA" — it is a **two-layer** design, separately pre-registered:
+
+> **slow regime gate** (manages slow bears, as here) **+ an independent fast
+> drawdown circuit-breaker** (a volatility / rapid-drawdown trip that handles the
+> COVID-style crash the slow filter misses).
+
+`SMA150` is only the fragile accidental hint that "faster helps the fast crash";
+a robust `regime-trend-v1` should add an explicit fast-crash layer, not lean on a
+single grid-point SMA value that carries strong overfit risk.
 
 ## Related
 
