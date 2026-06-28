@@ -13,8 +13,11 @@ failed the pre-registered per-cycle gate because it did not protect the
 This is still a **long / flat** beta-management rule. It is not a short signal,
 not alpha, and not an intraday execution strategy.
 
-> **Status:** PRE-REGISTERED DRAFT. Not run. No signal, no proposal, no
-> execution until it validates.
+> **Status:** RUN — REJECTED (2026-06), verified. The fast breaker did not close
+> v0's fast-crash hole — it **widened** it (COVID episode −58.21% vs v0 −50.10%
+> vs B&H −49.43%) and degraded the BTC mainline across the board. The study's
+> `fast=False` path reproduces v0 exactly, so the damage is the breaker, not a
+> bug. **Do not continue parameter repair.** See verdict below.
 
 ## Why this v1 is dangerous
 
@@ -285,9 +288,85 @@ Standalone, outside both repos, read-only:
 
 No one-off console-only verdicts.
 
-## Research verdict
+## Research verdict — REJECTED (the breaker made it worse, 2026-06)
 
-Not run yet.
+Run at `C:\Users\Marcus\OneDrive\Desktop\regime_trend_v1_backtest\` (read-only;
+Binance / Yahoo public data; no Alice runtime). `config.json` records
+`spec_commit: a9cba41`. **Independently verified** against the locked spec
+(slow `SMA200 ±3%`; breaker `30D / −20% trip / −10% release / 10D cooldown`; AND
+composition; no-lookahead; per-leg costs; common-start benchmark; Gate 5; the
+operationalised cross-asset guard). **Cross-check:** the study's `fast=False`
+path reproduces v0 **exactly** (CAGR 30.28%, maxDD −52.36%, Calmar 0.578), so any
+difference from v0 is the breaker alone — not a bug.
+
+**BTC mainline — the breaker degraded it across the board:**
+
+| metric | v1 (breaker) | v0 (no breaker) | B&H |
+|---|---|---|---|
+| CAGR | 26.97% | 30.28% | 24.78% |
+| maxDD | −59.29% | −52.36% | −76.63% |
+| maxDD ratio | **0.774** (Gate 1 ❌) | 0.683 | — |
+| Calmar | 0.455 | 0.578 | 0.323 |
+| turnover | 2.18 rt/yr | 1.58 | — |
+| split-half advantage | ❌ flips | ✅ holds | — |
+| **COVID 2019-06→2020-03** | **−58.21%** | −50.10% | −49.43% |
+
+Gates: 1 ❌ (0.774 > 0.70), 2 ✅, 3 ❌ (cycles **and** split both fail), 4 ✅,
+5 ❌ (COVID DD smaller than neither B&H nor v0). **accepted = false.**
+
+**Why it failed — verified mechanism (actively worse, not "improved too
+little"):** `breaker_events_BTC.csv` shows the breaker **whipsawed four times in
+the 2019 H2 decline** (trips 2019-07-14 / 08-29 / 09-25 / 11-22, each released
+weeks later): every trip sold after a −20% drop (selling low), every release
+bought back at −10% from the high (buying higher) — a sell-low / buy-high bleed
+that lowered equity *before* COVID. The COVID trip then fired only on
+**2020-03-08 at −22% from the 30D high** — late, near the bottom, no earlier than
+the slow layer — so it added **no independent fast-crash protection**. A −20%/30D
+drawdown is routine in BTC's normal volatility (the breaker fired ~26× over 8
+years): it is a **noise trigger that whipsaws**, not a selective crash detector.
+
+**Sensitivity does not rescue it.** Of the **81** pre-registered breaker variants
+(`lookback×trip×release×cooldown`), exactly **one** passed (`20D / 15% / 5% /
+10D`) — that is **chance-level** (≈ 1/81), and it is a *more* sensitive trigger
+that merely threads this exact history. Picking it after the mainline failed is
+post-hoc answer-selection.
+
+**Cross-asset (overfit guard, working as designed):** the breaker's effect is
+**idiosyncratic** — it helped ETH (which passed all five gates, but is
+support-only and cannot rescue BTC) while it hurt BTC; Gold was correctly marked
+**not applicable** (no ≥20%/30D crash); BTC `all_v1_improves_vs_bh = false`. Not
+a general crash-breaker.
+
+### Conclusion — accept the premium, stop chasing a free hedge
+
+- **v0's value is real:** slow, dumb, low-turnover; it manages macro slow bears.
+- **v0's flaw is real:** it cannot dodge fast crashes — that is the **insurance
+  premium, not a bug**.
+- **v1 proved the cost of a fast breaker:** chasing the fast crash whipsawed it in
+  choppy declines and **made the BTC mainline worse**.
+- **Do not pursue a v2 perfect-hedge curve** — on one asset's history that is just
+  overfitting (the 1/81 cell is the warning).
+
+> `regime-trend-v1` rejected. Fast crash breaker worsened the BTC mainline; do
+> **not** continue parameter repair. Accept v0-style slow regime as a possible
+> **human-facing advisory / risk gate**, but **not** validated as an automatic
+> `directionSource` under strict Gate 3.
+
+**Plain version: insurance has a premium — do not fantasise about a free hedge.**
+
+### The honest landing of the whole arc
+
+Six hypotheses tried to find or build an automatic `directionSource`; none
+cleared the strict bar. That is exactly what the constitution said from the
+start — `Alice does not predict price`; its job is to **gate risk and execute**,
+not to time entries. So the next step is **not** a v2 directionSource but a
+separately pre-registered **restrict-only risk-gate overlay**
+(`regime-risk-gate-v0`): bull → `long allowed`; bear → no new longs / size-down;
+fast-crash → pause adds / require human approval — **never** an automatic
+full-position flip. Its validation frame is "does restrict-only gating reduce
+tail exposure at acceptable opportunity cost, under human-approved entry," **not**
+"beat buy-and-hold." This is fail-safe (it only restricts) and matches
+`Alice has veto power, not endorsement power`.
 
 ## Related
 
