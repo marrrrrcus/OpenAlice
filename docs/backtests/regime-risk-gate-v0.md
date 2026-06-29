@@ -14,8 +14,10 @@ long/flat strategy. This v0 asks the correct, narrower question:
 Alice still does **not** choose direction. It only reviews the direction the
 human supplied.
 
-> **Status:** PRE-REGISTERED DRAFT. Not run. No production gate, no proposal, no
-> execution until the study validates the relevant veto side.
+> **Status:** RUN - PARTIAL VALIDATION (2026-06). The SHORT-side veto validated:
+> `SHORT in BULL -> BLOCK` may be promoted as a restrict-only macro veto. The
+> LONG-side veto did **not** validate, and the dual-side gate did **not**
+> validate. This remains a risk gate, not a `directionSource`.
 
 ## Constitution alignment
 
@@ -308,24 +310,28 @@ claimed as validated directional calls.
 Even if a side passes, it is **not** a `directionSource`. It is only a veto /
 restriction layer for a direction supplied by the human.
 
-## Expected production semantics if validated
+## Expected production semantics if a side validates
 
-Example LONG proposal:
+These examples show the required language pattern. After the v0 run, only the
+SHORT-side example is validated. The LONG-side example remains a template only;
+`LONG in BEAR -> BLOCK` must not be promoted from this study.
+
+Example LONG proposal template (not validated by this run):
 
 ```text
 human intent: LONG BTC
 regime-risk-gate-v0: BLOCK
-reason: BTC is below SMA200 - 3%; long-side bear-regime veto is validated.
+reason: BTC is below SMA200 - 3%; this would require a validated long-side veto.
 language: Macro regime is adverse to new longs; trade blocked.
 ```
 
-Example SHORT proposal:
+Example SHORT proposal (validated side):
 
 ```text
 human intent: SHORT BTC
-regime-risk-gate-v0: ASK-HUMAN
-reason: No macro block detected, but short is never auto-cleared by this gate.
-language: No macro block detected; short still requires explicit human confirmation.
+regime-risk-gate-v0: BLOCK
+reason: BTC is above SMA200 + 3%; short-side bull-regime veto is validated.
+language: Macro regime is adverse to new shorts; trade blocked.
 ```
 
 ## Deliberately OUT of v0
@@ -357,7 +363,123 @@ No console-only verdicts.
 
 ## Research verdict
 
-Not run yet.
+Run completed against the pre-registered spec commit `029a2a6`.
+
+Artifacts are stored outside the repo:
+
+```text
+C:\Users\Marcus\OneDrive\Desktop\regime_risk_gate_v0_backtest\
+```
+
+Primary window:
+
+- BTCUSDT Binance spot daily, `2017-08-17` -> `2026-06-02`
+- first primary signal: `2018-03-04`
+- last primary signal: `2026-04-02`
+- primary horizon: 60 daily bars
+- primary rows: 2,952
+- zone counts: `BULL=1,521`, `BEAR=1,251`, `GRAY=180`
+- bootstrap: monthly block bootstrap, `B=2000`, `seed=42`
+
+### Verdict summary
+
+| Side | Tested veto | Result | Production meaning |
+|---|---|---|---|
+| LONG | `LONG in BEAR -> BLOCK` | **Not validated** | Do not promote this side from v0. |
+| SHORT | `SHORT in BULL -> BLOCK` | **Validated** | May promote as a restrict-only macro veto. |
+| Dual-side gate | both sides | **Not validated** | v0 is not a full dual-side gate. |
+
+### LONG-side result - not validated
+
+The point estimates favor the intended veto direction, but the overlap-aware
+monthly bootstrap does not fully exclude zero. The strict pre-registered gate
+therefore fails.
+
+| Metric | BEAR long (veto set) | BULL long (reference) | Difference |
+|---|---:|---:|---:|
+| Observations | 1,251 | 1,521 | - |
+| Monthly blocks | 55 | 64 | - |
+| CVaR5 60D | -60.58% | -45.46% | -15.12pp |
+| P5 60D | -50.55% | -37.74% | -12.81pp |
+| Median 60D | +1.77% | +4.04% | -2.28pp |
+
+Gate checks:
+
+| Gate | Result |
+|---|---|
+| sample sufficiency | pass |
+| CVaR5 margin | pass |
+| P5 margin | pass |
+| monthly block-bootstrap CI | **fail**: 90% CI = `[-26.06pp, +0.57pp]` |
+| leave-one-quarter-out direction | pass |
+
+Interpretation: `BEAR` looks worse for longs by point estimate, but the primary
+60D bootstrap interval still crosses zero. This side is not validated. This is
+the correct conservative outcome: a visually plausible veto is not enough to
+promote production behavior.
+
+### SHORT-side result - validated
+
+The SHORT-side veto passes all pre-registered gates. In a confirmed macro
+up-regime, hypothetical short exposure has materially worse 60D left-tail
+outcomes than short exposure in a bear regime.
+
+| Metric | BULL short (veto set) | BEAR short (reference) | Difference |
+|---|---:|---:|---:|
+| Observations | 1,521 | 1,251 | - |
+| Monthly blocks | 64 | 55 | - |
+| CVaR5 60D | -75.30% | -54.09% | -21.21pp |
+| P5 60D | -61.11% | -40.83% | -20.28pp |
+| Median 60D | -4.04% | -1.77% | -2.28pp |
+
+Gate checks:
+
+| Gate | Result |
+|---|---|
+| sample sufficiency | pass |
+| CVaR5 margin | pass |
+| P5 margin | pass |
+| monthly block-bootstrap CI | pass: 90% CI = `[-38.94pp, -1.19pp]` |
+| leave-one-quarter-out direction | pass |
+
+Interpretation: `SHORT in BULL -> BLOCK` is validated as a restrict-only macro
+veto.
+
+### Important limits
+
+This is the first validated result in the research arc, so the limits matter as
+much as the pass:
+
+- The SHORT-side pass is valid but not overwhelming. The bootstrap CI upper
+  bound is only `-1.19pp`; direction is confirmed, but magnitude is imprecise.
+- `SHORT in BULL -> BLOCK` does **not** mean `SHORT in BEAR` is safe. The
+  BEAR-short 60D CVaR5 is still `-54.09%`, which is severe. This is why
+  `SHORT in BEAR` remains `ASK-HUMAN`, never `ALLOW`.
+- This is trend-persistence evidence, not a newly discovered edge. It validates
+  a veto against a high-risk human intent; it does not originate shorts, longs,
+  proposals, or trades.
+- The LONG-side veto remains unvalidated. Do not use this run to block
+  `LONG in BEAR` automatically.
+
+### Final decision
+
+Promote only:
+
+```text
+Human intent: SHORT
+Regime zone: BULL
+Gate output: BLOCK
+Reason: short-side bull-regime veto validated by regime-risk-gate-v0.
+```
+
+Do not promote:
+
+```text
+LONG in BEAR -> BLOCK
+SHORT in BEAR -> ALLOW
+any automatic directionSource
+any claim that BULL supports longs or BEAR supports shorts
+```
 
 ## Related
 
