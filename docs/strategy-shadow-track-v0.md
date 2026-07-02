@@ -82,6 +82,15 @@ file per strategy, single writer (UTA), append-only, ~1 line per day.
   day row supersedes an earlier `unknown` row for the same day (append-only
   self-healing). Malformed lines are skipped (same tolerance as the event
   log's recovery).
+- **Only a missing file is a cold start.** Any other read failure (lock,
+  permission, I/O) THROWS and the strategy idles for the tick — an
+  unreadable ledger treated as empty would mint a fresh anchor row on top
+  of existing evidence and fork the track.
+- **Structurally incomplete rows are rejected**, not half-accepted: a day
+  row must carry `backfilled`/`close`/`stance`/`equity` (and a complete
+  `mark` if present), an unknown row `reason`/`equity`. Day rows are final,
+  so a corrupt link must read as a hole (which evaluation counts as
+  unknown), never as a chain member.
 
 ### Row contract (pinned)
 
@@ -345,6 +354,13 @@ the B1 commit:
    correctly chained day rows → the track is live. Secondary signals:
    startup log line, seeded `research-shadow.json`, mirror events. A missing
    event is cosmetic; a missing ledger row is a failure.
+4. **The ledger must never live under a cloud-synced (OneDrive) directory**
+   (post-lock ruling): sync locking can tear appends, and a second clone
+   scoring into its own synced data root would mint a parallel "track" that
+   pollutes the evidence. The shadow detects a OneDrive data root and
+   refuses to score (idles loudly) — which also stops accidental junk
+   tracks from dev runs on the OneDrive tree. Only the runtime clone
+   (local, non-synced) scores.
 
 ## Seed strategies
 
@@ -396,3 +412,14 @@ the B1 commit:
   payload fields, descriptions may use it only in the negated phrase;
   **[P2]** unknown rows store frozen carry-forward `equity` (state, not
   performance) and never a `mark`. Spec ready to lock.
+- 2026-07-02 — locked (`5923303`).
+- 2026-07-02 — Marcus post-lock addendum (during B1 review): the evidence
+  ledger must never be placed under a cloud-synced (OneDrive) directory;
+  the shadow refuses to score there (guard in shadow.ts, deployment
+  rule 4).
+- 2026-07-02 — Marcus B1 code review round 2: two P1 fixes on ledger
+  reading — **[P1]** non-ENOENT read failures throw instead of reading as
+  a cold start (an unreadable ledger must never be scored over);
+  **[P1]** structural row validation (day rows missing close/stance/
+  backfilled, or with an incomplete mark, are rejected as holes). Both
+  recorded as reader rules above.

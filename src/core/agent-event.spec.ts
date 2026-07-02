@@ -11,6 +11,8 @@ describe('AgentEventSchemas', () => {
     'agent.work.requested', 'agent.work.done', 'agent.work.skip', 'agent.work.error',
     'trading.risk_gate.verdict',
     'trading.regime.zone',
+    'research.shadow.stance',
+    'research.shadow.mark',
   ]
 
   it('should have a schema for every key in AgentEventMap', () => {
@@ -234,6 +236,79 @@ describe('validateEventPayload', () => {
       dateUtc: '2026-06-29',
       zone: 'SIDEWAYS',
     })).toThrow(/Invalid payload.*trading\.regime\.zone/)
+  })
+
+  // -- research.shadow.stance --
+  it('should accept a shadow stance row mirror', () => {
+    expect(() => validateEventPayload('research.shadow.stance', {
+      strategy: 'buy-and-hold-v0',
+      symbol: 'BTCUSDT',
+      dateUtc: '2026-07-01',
+      stance: 'long',
+      close: '60024',
+      shadowOnly: true,
+    })).not.toThrow()
+  })
+
+  it('should accept an unknown shadow stance with reason', () => {
+    expect(() => validateEventPayload('research.shadow.stance', {
+      strategy: 'buy-and-hold-v0',
+      symbol: 'BTCUSDT',
+      dateUtc: '2026-07-01',
+      stance: 'unknown',
+      reason: 'kline fetch failed',
+      shadowOnly: true,
+    })).not.toThrow()
+  })
+
+  it('should reject a shadow stance without the shadowOnly literal', () => {
+    expect(() => validateEventPayload('research.shadow.stance', {
+      strategy: 'buy-and-hold-v0',
+      symbol: 'BTCUSDT',
+      dateUtc: '2026-07-01',
+      stance: 'long',
+    })).toThrow(/Invalid payload.*research\.shadow\.stance/)
+  })
+
+  it('should reject a shadow stance with shadowOnly=false (literal true required)', () => {
+    expect(() => validateEventPayload('research.shadow.stance', {
+      strategy: 'buy-and-hold-v0',
+      symbol: 'BTCUSDT',
+      dateUtc: '2026-07-01',
+      stance: 'long',
+      shadowOnly: false,
+    })).toThrow(/Invalid payload.*research\.shadow\.stance/)
+  })
+
+  // -- research.shadow.mark --
+  it('should accept a shadow mark row mirror', () => {
+    expect(() => validateEventPayload('research.shadow.mark', {
+      strategy: 'buy-and-hold-v0',
+      symbol: 'BTCUSDT',
+      dateUtc: '2026-07-01',
+      stanceHeld: 'long',
+      grossRet: '-0.0081464',
+      legs: 0,
+      costPerLegBps: '10',
+      netRet: '-0.0081464',
+      equity: '0.9918536',
+      shadowOnly: true,
+    })).not.toThrow()
+  })
+
+  it('should reject a shadow mark with an unknown stanceHeld', () => {
+    expect(() => validateEventPayload('research.shadow.mark', {
+      strategy: 'buy-and-hold-v0',
+      symbol: 'BTCUSDT',
+      dateUtc: '2026-07-01',
+      stanceHeld: 'unknown',
+      grossRet: '0',
+      legs: 0,
+      costPerLegBps: '10',
+      netRet: '0',
+      equity: '1',
+      shadowOnly: true,
+    })).toThrow(/Invalid payload.*research\.shadow\.mark/)
   })
 
   // -- unregistered types --

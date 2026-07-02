@@ -28,6 +28,12 @@ import {
   startRegimeShadow,
 } from './domain/trading/risk-gates/index.js'
 import {
+  seedResearchShadowConfig,
+  createResearchShadowConfigLoader,
+  startResearchShadow,
+  ALL_STRATEGIES,
+} from './domain/research/shadow/index.js'
+import {
   getSDKExecutor,
   buildRouteMap,
   SDKCurrencyClient,
@@ -135,6 +141,26 @@ async function main(): Promise<void> {
     console.warn('[uta] regime shadow not started:', err instanceof Error ? err.message : err)
   }
 
+  // ==================== Research shadow (strategy shadow track) ====================
+  // docs/strategy-shadow-track-v0.md — forward paper-evidence scoring for
+  // registered candidate strategies. Research evidence ONLY: never a signal,
+  // never an order; no trading path reads its output. The per-strategy JSONL
+  // ledger under data/research/shadow/ is the authority; events are mirrors.
+  // Same reload model as the regime shadow: config is read per tick, but the
+  // timer itself re-evaluates only on UTA restart.
+  let researchShadow: { stop(): void } | undefined
+  try {
+    await seedResearchShadowConfig()
+    researchShadow = startResearchShadow({
+      strategies: ALL_STRATEGIES,
+      loadConfig: createResearchShadowConfigLoader(),
+      eventLog,
+    })
+    console.log(`[uta] research shadow started (${ALL_STRATEGIES.map(s => s.id).join(', ')}; ledger at data/research/shadow; evidence only — never a signal)`)
+  } catch (err) {
+    console.warn('[uta] research shadow not started:', err instanceof Error ? err.message : err)
+  }
+
   // ==================== Catalog refresh ====================
   // Brokers that cache catalog (Alpaca / CCXT / Mock) need periodic refresh.
   // No-op for brokers that query server-side. Lifted from src/main.ts:460-470.
@@ -191,6 +217,7 @@ async function main(): Promise<void> {
     console.log(`[uta] ${signal} → shutdown`)
     clearInterval(catalogRefreshTimer)
     regimeShadow?.stop()
+    researchShadow?.stop()
     snapshotScheduler.stop()
     server.close()
     await utaManager.closeAll().catch(() => { /* swallow during shutdown */ })

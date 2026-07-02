@@ -41,7 +41,7 @@ export type FetchKlines = (symbol: string, limit: number) => Promise<KlineRow[]>
 const FAILURE_TTL_MS = 60_000
 const KLINE_LIMIT = 250 // ≥ SMA200 warmup + slack
 
-async function fetchBinanceSpotKlines(symbol: string, limit: number): Promise<KlineRow[]> {
+export async function fetchBinanceSpotKlines(symbol: string, limit: number): Promise<KlineRow[]> {
   const url = `https://api.binance.com/api/v3/klines?symbol=${encodeURIComponent(symbol)}&interval=1d&limit=${limit}`
   const res = await fetch(url)
   if (!res.ok) throw new Error(`Binance klines HTTP ${res.status}`)

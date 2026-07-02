@@ -53,6 +53,7 @@ export { computeZone, SMA_WINDOW, type RegimeZone, type ZoneResult } from './reg
 export {
   createRegimeProvider,
   getRegimeReading,
+  fetchBinanceSpotKlines,
   type RegimeReading,
   type RegimeProvider,
   type RegimeSourceConfig,

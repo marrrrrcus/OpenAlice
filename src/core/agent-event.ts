@@ -134,6 +134,41 @@ export interface TradingRegimeZonePayload {
   error?: string
 }
 
+// ---- Strategy shadow track (docs/strategy-shadow-track-v0.md) ----
+//
+// Research evidence only — never a signal, never a proposal. The per-strategy
+// JSONL ledger under data/research/shadow/ is the authority; these events are
+// best-effort visibility mirrors emitted by the UTA research shadow timer
+// (same direct-append precedent as trading.regime.zone). `shadowOnly` is a
+// schema-level literal so no consumer can plausibly read these as tradable.
+// Returns are decimal FRACTIONS as strings (−0.0081 = −0.81%), never percent.
+
+export interface ResearchShadowStancePayload {
+  strategy: string
+  symbol: string
+  dateUtc: string
+  stance: 'long' | 'short' | 'flat' | 'unknown'
+  close?: string
+  backfilled?: boolean
+  /** Populated when stance is 'unknown'. */
+  reason?: string
+  shadowOnly: true
+}
+
+export interface ResearchShadowMarkPayload {
+  strategy: string
+  symbol: string
+  dateUtc: string
+  stanceHeld: 'long' | 'short' | 'flat'
+  grossRet: string
+  legs: number
+  costPerLegBps: string
+  netRet: string
+  equity: string
+  backfilled?: boolean
+  shadowOnly: true
+}
+
 export interface AgentEventMap {
   'cron.fire': CronFirePayload
   'message.received': MessageReceivedPayload
@@ -144,6 +179,8 @@ export interface AgentEventMap {
   'agent.work.error':     AgentWorkErrorPayload
   'trading.risk_gate.verdict': TradingRiskGateVerdictPayload
   'trading.regime.zone': TradingRegimeZonePayload
+  'research.shadow.stance': ResearchShadowStancePayload
+  'research.shadow.mark': ResearchShadowMarkPayload
 }
 
 // ==================== TypeBox Schemas ====================
@@ -227,6 +264,40 @@ const TradingRegimeZoneSchema = Type.Object({
   error: Type.Optional(Type.String()),
 })
 
+const ResearchShadowStanceSchema = Type.Object({
+  strategy: Type.String(),
+  symbol: Type.String(),
+  dateUtc: Type.String(),
+  stance: Type.Union([
+    Type.Literal('long'),
+    Type.Literal('short'),
+    Type.Literal('flat'),
+    Type.Literal('unknown'),
+  ]),
+  close: Type.Optional(Type.String()),
+  backfilled: Type.Optional(Type.Boolean()),
+  reason: Type.Optional(Type.String()),
+  shadowOnly: Type.Literal(true),
+})
+
+const ResearchShadowMarkSchema = Type.Object({
+  strategy: Type.String(),
+  symbol: Type.String(),
+  dateUtc: Type.String(),
+  stanceHeld: Type.Union([
+    Type.Literal('long'),
+    Type.Literal('short'),
+    Type.Literal('flat'),
+  ]),
+  grossRet: Type.String(),
+  legs: Type.Number(),
+  costPerLegBps: Type.String(),
+  netRet: Type.String(),
+  equity: Type.String(),
+  backfilled: Type.Optional(Type.Boolean()),
+  shadowOnly: Type.Literal(true),
+})
+
 const TradingRiskGateVerdictSchema = Type.Object({
   accountId: Type.String(),
   pendingHash: Type.Union([Type.String(), Type.Null()]),
@@ -296,6 +367,14 @@ export const AgentEvents: { [K in keyof AgentEventMap]: AgentEventMeta } = {
   'trading.regime.zone': {
     schema: TradingRegimeZoneSchema,
     description: 'Daily regime-shadow reading (docs/regime-veto-onboarding-v0.md): the live BTC regime zone computed from Binance spot daily closes. One good entry per UTC day; UNKNOWN entries carry the failure reason. Evidence track for the regime-veto observe exit.',
+  },
+  'research.shadow.stance': {
+    schema: ResearchShadowStanceSchema,
+    description: 'Strategy shadow track (docs/strategy-shadow-track-v0.md): the paper stance recorded for one strategy and UTC day. Research evidence only — never a signal, never a proposal. The JSONL ledger under data/research/shadow/ is the authority; this event is a visibility mirror.',
+  },
+  'research.shadow.mark': {
+    schema: ResearchShadowMarkSchema,
+    description: 'Strategy shadow track (docs/strategy-shadow-track-v0.md): mark-to-market of the stance held during one UTC day (close-to-close, costs charged on stance changes). Research evidence only — never a signal, never a proposal. Mirror of the authoritative ledger row.',
   },
 }
 
