@@ -439,6 +439,23 @@ export class MockBroker implements IBroker {
     return { contract: internal.contract, order: internal.order, orderState }
   }
 
+  /**
+   * Enumerate ALL working orders — including ones no external caller knows
+   * the id of (risk-gate G2 exposure needs exchange-side truth, not just
+   * git-tracked ids).
+   */
+  async getOpenOrders(): Promise<OpenOrder[]> {
+    this._record('getOpenOrders', [])
+    const out: OpenOrder[] = []
+    for (const internal of this._orders.values()) {
+      if (internal.status !== 'Submitted' && internal.status !== 'PreSubmitted') continue
+      const orderState = new OrderState()
+      orderState.status = internal.status
+      out.push({ contract: internal.contract, order: internal.order, orderState })
+    }
+    return out
+  }
+
   async getQuote(contract: Contract): Promise<Quote> {
     this._record('getQuote', [contract])
     const price = this._markPriceFor(contract) ?? new Decimal(100)

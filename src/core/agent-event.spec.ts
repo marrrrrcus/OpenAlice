@@ -9,6 +9,7 @@ describe('AgentEventSchemas', () => {
     'cron.fire',
     'message.received', 'message.sent',
     'agent.work.requested', 'agent.work.done', 'agent.work.skip', 'agent.work.error',
+    'trading.risk_gate.verdict',
   ]
 
   it('should have a schema for every key in AgentEventMap', () => {
@@ -163,6 +164,46 @@ describe('validateEventPayload', () => {
       error: 'AI down',
       durationMs: 5,
     })).not.toThrow()
+  })
+
+  // -- trading.risk_gate.verdict --
+  it('should accept valid trading.risk_gate.verdict payload', () => {
+    expect(() => validateEventPayload('trading.risk_gate.verdict', {
+      accountId: 'mock-acct',
+      pendingHash: 'abc12345',
+      trigger: 'push',
+      mode: 'enforce',
+      result: 'BLOCK',
+      enforced: true,
+      configSource: 'file',
+      verdicts: [{
+        gate: 'G1_MAX_ORDER_NOTIONAL',
+        result: 'BLOCK',
+        reason: 'order notional $1500.00 > effective cap $1000.00',
+        observed: '1500.00',
+        limit: '1000.00',
+      }],
+    })).not.toThrow()
+  })
+
+  it('should accept trading.risk_gate.verdict with null pendingHash and minimal verdicts', () => {
+    expect(() => validateEventPayload('trading.risk_gate.verdict', {
+      accountId: 'a',
+      pendingHash: null,
+      trigger: 'preview',
+      mode: 'observe',
+      result: 'PASS',
+      enforced: false,
+      configSource: 'defaults',
+      verdicts: [{ gate: 'G3_DAILY_LOSS', result: 'PASS', reason: 'within limit' }],
+    })).not.toThrow()
+  })
+
+  it('should reject trading.risk_gate.verdict with an invalid trigger', () => {
+    expect(() => validateEventPayload('trading.risk_gate.verdict', {
+      accountId: 'a', pendingHash: null, trigger: 'bogus', mode: 'observe',
+      result: 'PASS', enforced: false, configSource: 'defaults', verdicts: [],
+    })).toThrow(/Invalid payload.*trading\.risk_gate\.verdict/)
   })
 
   // -- unregistered types --

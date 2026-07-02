@@ -82,6 +82,34 @@ export interface AgentWorkErrorPayload {
   metadata?: Record<string, unknown>
 }
 
+// ==================== Trading risk-gate event ====================
+//
+// One event per risk-gate evaluation of a pending trading commit
+// (docs/risk-gate-pipeline-v0.md) — push-time or status-preview — carrying
+// every gate verdict. This is the audit trail behind the observe-mode exit
+// review. Emitted by the UTA service directly via its own EventLog instance
+// (the UTA process has no ListenerRegistry; same precedent as
+// 'account.health').
+
+export interface TradingRiskGateVerdictPayload {
+  accountId: string
+  pendingHash: string | null
+  trigger: 'push' | 'preview'
+  mode: 'off' | 'observe' | 'enforce'
+  result: 'PASS' | 'BLOCK'
+  /** True when this evaluation actually gated a push (enforce + BLOCK at push time). */
+  enforced: boolean
+  configSource: 'file' | 'defaults' | 'invalid'
+  verdicts: Array<{
+    gate: string
+    result: string
+    code?: string
+    reason: string
+    observed?: string
+    limit?: string
+  }>
+}
+
 // ==================== Event Map ====================
 
 // Import the actual CronFirePayload type for use in the map
@@ -95,6 +123,7 @@ export interface AgentEventMap {
   'agent.work.done':      AgentWorkDonePayload
   'agent.work.skip':      AgentWorkSkipPayload
   'agent.work.error':     AgentWorkErrorPayload
+  'trading.risk_gate.verdict': TradingRiskGateVerdictPayload
 }
 
 // ==================== TypeBox Schemas ====================
@@ -163,6 +192,24 @@ const AgentWorkErrorSchema = Type.Object({
   metadata: Type.Optional(Type.Record(Type.String(), Type.Unknown())),
 })
 
+const TradingRiskGateVerdictSchema = Type.Object({
+  accountId: Type.String(),
+  pendingHash: Type.Union([Type.String(), Type.Null()]),
+  trigger: Type.Union([Type.Literal('push'), Type.Literal('preview')]),
+  mode: Type.Union([Type.Literal('off'), Type.Literal('observe'), Type.Literal('enforce')]),
+  result: Type.Union([Type.Literal('PASS'), Type.Literal('BLOCK')]),
+  enforced: Type.Boolean(),
+  configSource: Type.Union([Type.Literal('file'), Type.Literal('defaults'), Type.Literal('invalid')]),
+  verdicts: Type.Array(Type.Object({
+    gate: Type.String(),
+    result: Type.String(),
+    code: Type.Optional(Type.String()),
+    reason: Type.String(),
+    observed: Type.Optional(Type.String()),
+    limit: Type.Optional(Type.String()),
+  })),
+})
+
 // ==================== AgentEvents — metadata registry ====================
 
 export interface AgentEventMeta {
@@ -206,6 +253,10 @@ export const AgentEvents: { [K in keyof AgentEventMap]: AgentEventMeta } = {
   'agent.work.error': {
     schema: AgentWorkErrorSchema,
     description: 'An AgentWork task failed during execution. Filter on payload.source for trigger attribution.',
+  },
+  'trading.risk_gate.verdict': {
+    schema: TradingRiskGateVerdictSchema,
+    description: 'Risk-gate pipeline evaluated a pending trading commit (docs/risk-gate-pipeline-v0.md). One event per evaluation with every gate verdict; enforced=true means a push was actually blocked. Audit trail for the observe-mode exit review.',
   },
 }
 

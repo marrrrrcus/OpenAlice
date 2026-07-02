@@ -835,6 +835,28 @@ export class CcxtBroker implements IBroker<CcxtBrokerMeta> {
     return results
   }
 
+  /**
+   * Enumerate ALL open orders on the exchange (`fetchOpenOrders`, no symbol
+   * filter) — including orders placed outside Alice. Risk-gate G2 uses this
+   * so exchange-side resting orders count toward projected exposure. Errors
+   * propagate (NotSupported on some venues, transient failures): the caller
+   * degrades to the loudly-annotated git-tracked scope.
+   */
+  async getOpenOrders(): Promise<OpenOrder[]> {
+    this.ensureInit()
+    try {
+      const raw = await this.exchange.fetchOpenOrders() as CcxtOrder[]
+      const out: OpenOrder[] = []
+      for (const o of raw) {
+        const converted = this.convertCcxtOrder(o)
+        if (converted) out.push(converted)
+      }
+      return out
+    } catch (err) {
+      throw BrokerError.from(err)
+    }
+  }
+
   async getOrder(orderId: string): Promise<OpenOrder | null> {
     this.ensureInit()
 

@@ -25,12 +25,14 @@
 
 import type { UnifiedTradingAccount } from './UnifiedTradingAccount.js'
 import type { PushResult } from './git/types.js'
+import type { RiskGateStatus } from '@traderalice/uta-protocol'
+import { RiskGateBlockedError } from './risk-gates/index.js'
 
 export type OrderEntryPhase = 'stage' | 'commit' | 'push'
 
 export type OrderEntryResult =
   | { ok: true; result: PushResult }
-  | { ok: false; phase: OrderEntryPhase; error: string }
+  | { ok: false; phase: OrderEntryPhase; error: string; riskGates?: RiskGateStatus }
 
 /**
  * Run stage → commit → push on the given UTA. The `stage` callback is
@@ -67,6 +69,12 @@ export async function executeOneShotOrder(
     const result = await uta.push()
     return { ok: true, result }
   } catch (err) {
+    // Risk-gate BLOCK — surface the structured report so the route layer
+    // can 409 with verdicts. The pending commit stays intact (re-approvable
+    // after a config change; the human may also reject it).
+    if (err instanceof RiskGateBlockedError) {
+      return { ok: false, phase: 'push', error: errorMessage(err), riskGates: err.report }
+    }
     return { ok: false, phase: 'push', error: errorMessage(err) }
   }
 }

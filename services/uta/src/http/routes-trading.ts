@@ -7,6 +7,7 @@ import type { UnifiedTradingAccount } from '../domain/trading/UnifiedTradingAcco
 import { searchTradeableContracts } from '../domain/trading/contract-search.js'
 import type { AssetClassHint } from '@traderalice/uta-protocol'
 import { executeOneShotOrder, type OrderEntryPhase } from '../domain/trading/order-entry.js'
+import { RiskGateBlockedError } from '../domain/trading/risk-gates/index.js'
 
 // ==================== Order entry schemas ====================
 //
@@ -70,6 +71,11 @@ async function runOneShot(
 ): Promise<Response> {
   const r = await executeOneShotOrder(uta, message, stage)
   if (r.ok) return c.json(r.result)
+  // Risk-gate BLOCK at the push phase — 409 (client-side condition, not a
+  // server failure), structured verdicts attached, pending commit intact.
+  if (r.riskGates) {
+    return c.json({ error: r.error, phase: r.phase, riskGates: r.riskGates }, 409)
+  }
   return c.json({ error: r.error, phase: r.phase }, PHASE_STATUS[r.phase])
 }
 
@@ -373,10 +379,20 @@ export function createTradingRoutes(ctx: EngineContext) {
     return c.json(commit)
   })
 
-  app.get('/uta/:id/wallet/status', (c) => {
+  app.get('/uta/:id/wallet/status', async (c) => {
     const uta = ctx.utaManager.get(c.req.param('id'))
     if (!uta) return c.json({ error: 'Account not found' }, 404)
-    return c.json(uta.status())
+    const status = uta.status()
+    // Risk-gate preview — advisory verdicts shown BEFORE the human approves
+    // (cached by pendingHash in the UTA; enforcement re-evaluates at push).
+    // A preview failure must never break the status surface.
+    if (status.pendingMessage) {
+      try {
+        const riskGates = await uta.previewRiskGates()
+        if (riskGates) return c.json({ ...status, riskGates })
+      } catch { /* status stays usable without the preview */ }
+    }
+    return c.json(status)
   })
 
   // Commit — finalize the current staging area without pushing. Used by
@@ -451,6 +467,11 @@ export function createTradingRoutes(ctx: EngineContext) {
       const result = await uta.push()
       return c.json(result)
     } catch (err) {
+      // Risk-gate BLOCK — same fail-closed family as the pendingHash 409:
+      // nothing executed, pending commit intact, structured verdicts attached.
+      if (err instanceof RiskGateBlockedError) {
+        return c.json({ error: err.message, riskGates: err.report }, 409)
+      }
       return c.json({ error: String(err) }, 500)
     }
   })

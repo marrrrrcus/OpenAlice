@@ -270,6 +270,36 @@ export function PushApprovalPanel() {
                   })}
                 </div>
 
+                {/* Risk-gate verdicts (advisory preview — enforcement re-checks
+                    at push). Language discipline: a full pass reads "no
+                    hard-limit block detected", never "safe". */}
+                {status.riskGates && (
+                  <div className="space-y-0.5">
+                    <div
+                      className={`text-[11px] px-2 py-1 rounded border ${
+                        status.riskGates.result === 'BLOCK'
+                          ? 'text-red border-red/40 bg-red/5'
+                          : 'text-text-muted border-border bg-bg/50'
+                      }`}
+                    >
+                      Risk gates ({status.riskGates.mode}):{' '}
+                      {status.riskGates.result === 'BLOCK' ? 'BLOCK' : 'no hard-limit block detected'}
+                    </div>
+                    {status.riskGates.verdicts
+                      .filter(v => v.result === 'BLOCK' || v.code)
+                      .map((v, i) => (
+                        <div
+                          key={i}
+                          className={`text-[11px] font-mono px-2 py-1 rounded bg-bg/50 ${
+                            v.result === 'BLOCK' ? 'text-red' : 'text-yellow'
+                          }`}
+                        >
+                          {v.result === 'BLOCK' ? '⛔' : '⚠️'} {v.gate}: {v.reason}
+                        </div>
+                      ))}
+                  </div>
+                )}
+
                 {/* Inline confirm or action buttons */}
                 {confirmingPush === account.id ? (
                   <div className="flex items-center gap-2 text-xs">

@@ -376,12 +376,36 @@ export interface WalletOperation {
   [key: string]: unknown
 }
 
+// ---- Risk gates (docs/risk-gate-pipeline-v0.md) ----
+// Verdict wording comes from the backend (language discipline: a full pass
+// is "no hard-limit block detected", never "safe"). The UI renders, it does
+// not editorialize.
+
+export interface GateVerdict {
+  gate: string
+  result: 'PASS' | 'BLOCK' | 'NOT_APPLICABLE'
+  code?: string
+  reason: string
+  observed?: string
+  limit?: string
+}
+
+export interface RiskGateStatus {
+  mode: 'off' | 'observe' | 'enforce'
+  result: 'PASS' | 'BLOCK'
+  verdicts: GateVerdict[]
+  evaluatedAt: string
+  configSource: 'file' | 'defaults' | 'invalid'
+}
+
 export interface WalletStatus {
   staged: WalletOperation[]
   pendingMessage: string | null
   pendingHash: string | null
   head: string | null
   commitCount: number
+  /** Advisory risk-gate preview for the pending commit; enforcement re-evaluates at push. */
+  riskGates?: RiskGateStatus
 }
 
 export interface WalletRejectResult {

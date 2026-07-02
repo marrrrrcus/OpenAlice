@@ -21,6 +21,7 @@ import {
   createSnapshotScheduler,
 } from './domain/trading/index.js'
 import { FxService } from './domain/trading/fx-service.js'
+import { seedRiskGatesConfig } from './domain/trading/risk-gates/index.js'
 import {
   getSDKExecutor,
   buildRouteMap,
@@ -50,6 +51,10 @@ async function main(): Promise<void> {
   const eventLog = await createEventLog()
   const toolCenter = new ToolCenter()
   const utaManager = new UTAManager({ eventLog, toolCenter })
+
+  // Seed data/config/risk-gates.json with observe-mode defaults if absent —
+  // the calibration surface must be discoverable. Never overwrites.
+  await seedRiskGatesConfig()
 
   // ==================== Account init (with ephemeral purge) ====================
 

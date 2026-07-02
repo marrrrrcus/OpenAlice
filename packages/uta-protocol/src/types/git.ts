@@ -120,6 +120,48 @@ export interface GitStatus {
   pendingHash: CommitHash | null
   head: CommitHash | null
   commitCount: number
+  /**
+   * Risk-gate preview for the pending commit (docs/risk-gate-pipeline-v0.md).
+   * Attached by the status route when a pending commit exists and the account
+   * has a risk-gate evaluator; absent otherwise. Advisory — enforcement
+   * re-evaluates fresh at push time.
+   */
+  riskGates?: RiskGateStatus
+}
+
+// ==================== Risk Gates (Phase 1 hard-limit pipeline) ====================
+//
+// Wire shapes for docs/risk-gate-pipeline-v0.md. Binary PASS/BLOCK at the
+// pipeline level; PASS verdicts may carry annotation codes (e.g.
+// CONFIG_INVALID_REDUCE_ONLY_PATH) and a guard may render NOT_APPLICABLE when
+// it declines jurisdiction (unvalidated instrument, no relevant ops) — never
+// phrased as a pass on the merits. All numeric evidence is decimal strings.
+
+export type RiskGateMode = 'off' | 'observe' | 'enforce'
+
+export type GateResult = 'PASS' | 'BLOCK' | 'NOT_APPLICABLE'
+
+export interface GateVerdict {
+  /** Stable gate identifier, e.g. 'G1_MAX_ORDER_NOTIONAL'. */
+  gate: string
+  result: GateResult
+  /** Annotation code — allowed on PASS as well as BLOCK (loud, greppable). */
+  code?: string
+  /** Observed-vs-limit facts only. A full pass never says "safe". */
+  reason: string
+  /** Decimal string of the observed quantity, when applicable. */
+  observed?: string
+  /** Decimal string of the configured limit, when applicable. */
+  limit?: string
+}
+
+export interface RiskGateStatus {
+  mode: RiskGateMode
+  /** Pipeline-level binary result: any gate BLOCK ⇒ BLOCK. */
+  result: 'PASS' | 'BLOCK'
+  verdicts: GateVerdict[]
+  evaluatedAt: string
+  configSource: 'file' | 'defaults' | 'invalid'
 }
 
 export interface OperationSummary {

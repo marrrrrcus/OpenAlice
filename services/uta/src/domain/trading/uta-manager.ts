@@ -72,6 +72,33 @@ export class UTAManager {
       },
       onPostPush: this._snapshotHooks?.onPostPush,
       onPostReject: this._snapshotHooks?.onPostReject,
+      riskGates: {
+        presetId: cfg.presetId,
+        // Lazy: FxService is wired via setFxService AFTER the initUTA loop
+        // in services/uta/src/main.ts — a captured instance would be stale.
+        getFx: () => this.fxService,
+        onReport: (report, meta) => {
+          this.eventLog?.append('trading.risk_gate.verdict', {
+            accountId: cfg.id,
+            pendingHash: meta.pendingHash,
+            trigger: meta.trigger,
+            mode: report.mode,
+            result: report.result,
+            enforced: meta.enforced,
+            configSource: report.configSource,
+            // Strip undefined optionals — Ajv-validated payloads must not
+            // carry present-but-undefined keys.
+            verdicts: report.verdicts.map(v => ({
+              gate: v.gate,
+              result: v.result,
+              reason: v.reason,
+              ...(v.code !== undefined ? { code: v.code } : {}),
+              ...(v.observed !== undefined ? { observed: v.observed } : {}),
+              ...(v.limit !== undefined ? { limit: v.limit } : {}),
+            })),
+          })
+        },
+      },
     })
     this.add(uta)
     return uta

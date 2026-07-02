@@ -585,6 +585,20 @@ export class TelegramPlugin implements Plugin {
       for (const op of gitStatus.staged) {
         lines.push(`  ${this.formatOperation(op)}`)
       }
+      // Risk-gate verdicts (advisory preview; enforcement re-checks at push).
+      // Language discipline: a full pass is "no hard-limit block detected",
+      // never "safe" — wording comes from the backend reasons.
+      const rg = gitStatus.riskGates
+      if (rg) {
+        const header = rg.result === 'BLOCK'
+          ? `Risk gates (${rg.mode}): BLOCK`
+          : `Risk gates (${rg.mode}): no hard-limit block detected`
+        lines.push(header)
+        for (const v of rg.verdicts) {
+          if (v.result === 'BLOCK') lines.push(`  ⛔ ${v.gate}: ${v.reason}`)
+          else if (v.code) lines.push(`  ⚠️ ${v.gate}: ${v.code} — ${v.reason}`)
+        }
+      }
       // Embed the pendingHash in the button so approval binds to the exact
       // commit shown here. If pending changes before the user taps, the
       // carried hash won't match and the action is blocked (fail-closed).

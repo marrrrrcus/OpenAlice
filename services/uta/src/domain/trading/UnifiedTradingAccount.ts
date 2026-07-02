@@ -30,9 +30,43 @@ import type {
   SyncResult,
 } from './git/types.js'
 import { createGuardPipeline, resolveGuards } from './guards/index.js'
+import {
+  evaluateRiskGates,
+  createRiskGatesConfigLoader,
+  createRiskGateStateStore,
+  RiskGateBlockedError,
+  type FxLike,
+  type RiskGateSnapshot,
+  type RiskGatesConfigResolution,
+  type RiskGateStateStore,
+} from './risk-gates/index.js'
+import type { RiskGateStatus } from '@traderalice/uta-protocol'
 import './contract-ext.js'
 
 // ==================== Options ====================
+
+/**
+ * Risk-gate wiring for this account (docs/risk-gate-pipeline-v0.md).
+ * When absent, the pipeline is not evaluated at all — existing tests and
+ * bare constructions keep their exact behavior.
+ */
+export interface RiskGateAccountOptions {
+  /** Broker preset id — drives the mock-simulator=enforce default. */
+  presetId: string
+  /** Lazy FX accessor (FxService is wired after initUTA in main.ts). */
+  getFx?: () => FxLike | undefined
+  /**
+   * Report sink — every evaluation (push and preview), wired to the event
+   * log. May be async: the caller awaits it (with a swallow-all catch) so an
+   * audit append settles BEFORE broker execution and a rejected promise can
+   * never become an unhandled rejection or silently lose observe data.
+   */
+  onReport?: (report: RiskGateStatus, meta: { trigger: 'push' | 'preview'; pendingHash: string | null; enforced: boolean }) => void | Promise<void>
+  /** Test injection points. */
+  loadConfig?: () => Promise<RiskGatesConfigResolution>
+  stateStore?: RiskGateStateStore
+  now?: () => Date
+}
 
 export interface UnifiedTradingAccountOptions {
   guards?: Array<{ type: string; options?: Record<string, unknown> }>
@@ -41,6 +75,7 @@ export interface UnifiedTradingAccountOptions {
   onHealthChange?: (accountId: string, health: BrokerHealthInfo) => void
   onPostPush?: (accountId: string) => void | Promise<void>
   onPostReject?: (accountId: string) => void | Promise<void>
+  riskGates?: RiskGateAccountOptions
 }
 
 // ==================== Stage param types ====================
@@ -79,6 +114,13 @@ export class UnifiedTradingAccount {
   private readonly _onPostPush?: (accountId: string) => void | Promise<void>
   private readonly _onPostReject?: (accountId: string) => void | Promise<void>
 
+  // ---- Risk gates (docs/risk-gate-pipeline-v0.md) ----
+  private readonly _riskGates?: RiskGateAccountOptions
+  private _riskGateLoadConfig?: () => Promise<RiskGatesConfigResolution>
+  private _riskGateStateStore?: RiskGateStateStore
+  private _riskGatePreviewCache?: { hash: string; at: number; report: RiskGateStatus }
+  private static readonly RISK_GATE_PREVIEW_TTL_MS = 10_000
+
   // ---- Health tracking ----
   private static readonly DEGRADED_THRESHOLD = 3
   private static readonly OFFLINE_THRESHOLD = 6
@@ -101,6 +143,7 @@ export class UnifiedTradingAccount {
     this._onHealthChange = options.onHealthChange
     this._onPostPush = options.onPostPush
     this._onPostReject = options.onPostReject
+    this._riskGates = options.riskGates
 
     // Wire internals
     this._getState = async (): Promise<GitState> => {
@@ -417,9 +460,122 @@ export class UnifiedTradingAccount {
     if (this.health === 'offline') {
       throw new Error(`Account "${this.label}" is offline. Cannot execute trades.`)
     }
+    // Risk-gate pipeline — atomic pre-push evaluation of the WHOLE pending
+    // commit, BEFORE TradingGit.push() starts its loop: a BLOCK sends
+    // nothing to the broker and leaves the pending commit fully intact.
+    // This is the single choke point beneath every approval surface
+    // (/wallet/push after its pendingHash guard, one-shot after commit).
+    if (this._riskGates) {
+      const report = await this._evaluateRiskGates('push')
+      if (report.mode === 'enforce' && report.result === 'BLOCK') {
+        throw new RiskGateBlockedError(report)
+      }
+    }
     const result = await this.git.push()
     Promise.resolve(this._onPostPush?.(this.id)).catch(() => {})
     return result
+  }
+
+  // ==================== Risk gates ====================
+
+  /**
+   * Dry-run risk-gate evaluation for the pending commit — surfaced on the
+   * status route so approval UIs show verdicts BEFORE the human decides.
+   * Cached by pendingHash + short TTL (the approval panel polls status);
+   * enforcement always re-evaluates fresh at push time. Returns undefined
+   * when the pipeline is unwired, mode is off, or nothing is pending.
+   */
+  async previewRiskGates(): Promise<RiskGateStatus | undefined> {
+    if (!this._riskGates) return undefined
+    const status = this.git.status()
+    if (!status.pendingMessage || !status.pendingHash) return undefined
+    const cached = this._riskGatePreviewCache
+    const nowMs = Date.now()
+    if (cached && cached.hash === status.pendingHash && nowMs - cached.at < UnifiedTradingAccount.RISK_GATE_PREVIEW_TTL_MS) {
+      return cached.report
+    }
+    const report = await this._evaluateRiskGates('preview')
+    if (report.mode === 'off') return undefined
+    this._riskGatePreviewCache = { hash: status.pendingHash, at: nowMs, report }
+    return report
+  }
+
+  /** Positions / account / resting orders for gate evaluation (aliceIds stamped). */
+  private async _riskGateSnapshot(): Promise<RiskGateSnapshot> {
+    const [account, positions] = await this._callBroker(() =>
+      Promise.all([
+        this.broker.getAccount(),
+        this.broker.getPositions(),
+      ]),
+    )
+    for (const p of positions) this.stampAliceId(p.contract)
+
+    // Resting orders: prefer the broker's full enumeration (getOpenOrders)
+    // so exchange-side/manual orders count toward G2 exposure. When the
+    // broker can't enumerate (method absent or call fails), degrade to the
+    // git-tracked-ids scope — and say so via restingScope, which G2 renders
+    // as a loud annotation. Unknown scope is never passed off as full scope.
+    let orders: OpenOrder[]
+    let restingScope: RiskGateSnapshot['restingScope']
+    if (typeof this.broker.getOpenOrders === 'function') {
+      try {
+        orders = await this.broker.getOpenOrders()
+        restingScope = 'all'
+      } catch {
+        orders = await this._fetchGitTrackedOrders()
+        restingScope = 'git-tracked'
+      }
+    } else {
+      orders = await this._fetchGitTrackedOrders()
+      restingScope = 'git-tracked'
+    }
+    for (const o of orders) this.stampAliceId(o.contract)
+
+    return {
+      positions,
+      account,
+      restingOrders: orders.filter(o => o.orderState.status === 'Submitted' || o.orderState.status === 'PreSubmitted'),
+      restingScope,
+    }
+  }
+
+  /** Degraded resting-order fetch: only ids Alice itself placed (git log). */
+  private _fetchGitTrackedOrders(): Promise<OpenOrder[]> {
+    const pendingIds = this.git.getPendingOrderIds().map(p => p.orderId)
+    if (pendingIds.length === 0) return Promise.resolve([])
+    return this._callBroker(() => this.broker.getOrders(pendingIds))
+  }
+
+  private async _evaluateRiskGates(trigger: 'push' | 'preview'): Promise<RiskGateStatus> {
+    const rg = this._riskGates!
+    const status = this.git.status()
+    const report = await evaluateRiskGates({
+      accountId: this.id,
+      presetId: rg.presetId,
+      operations: status.staged,
+      history: this.git.exportState().commits,
+      trigger,
+      getSnapshot: () => this._riskGateSnapshot(),
+      // Raw broker quote (not _callBroker): a flaky quote during preview
+      // polling must not pollute the account's health counters; the
+      // evaluator treats failures as "cannot price" (fail-closed) anyway.
+      getQuote: (contract) => this.broker.getQuote(contract),
+      getFx: rg.getFx ?? (() => undefined),
+      loadConfig: rg.loadConfig ?? (this._riskGateLoadConfig ??= createRiskGatesConfigLoader()),
+      stateStore: rg.stateStore ?? (this._riskGateStateStore ??= createRiskGateStateStore(this.id)),
+      now: rg.now,
+    })
+    // Await the (possibly async) audit sink so the record is durably
+    // appended before broker execution — but swallow every failure, sync or
+    // async: reporting must never affect the verdict.
+    await Promise.resolve()
+      .then(() => rg.onReport?.(report, {
+        trigger,
+        pendingHash: status.pendingHash,
+        enforced: trigger === 'push' && report.mode === 'enforce' && report.result === 'BLOCK',
+      }))
+      .catch(() => { /* reporting must never affect the verdict */ })
+    return report
   }
 
   async reject(reason?: string): Promise<RejectResult> {

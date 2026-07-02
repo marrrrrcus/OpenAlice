@@ -290,6 +290,14 @@ export interface IBroker<TMeta = unknown> {
   getPositions(): Promise<Position[]>
   getOrders(orderIds: string[]): Promise<OpenOrder[]>
   getOrder(orderId: string): Promise<OpenOrder | null>
+  /**
+   * Optional: enumerate ALL open (working) orders on the account — not just
+   * ids the caller already knows. Used by the risk-gate G2 exposure sum so
+   * exchange-side/manual resting orders are counted; callers must degrade
+   * loudly (annotated git-tracked scope) when a broker doesn't implement it
+   * or the call fails.
+   */
+  getOpenOrders?(): Promise<OpenOrder[]>
   getQuote(contract: Contract): Promise<Quote>
   /** Optional: supported by CCXT derivative/crypto brokers. */
   getFundingRate?(contract: Contract): Promise<FundingRate>
