@@ -58,6 +58,7 @@ import { createMetricsListener } from './task/metrics/index.js'
 import { createAgentWorkListener } from './core/agent-work-listener.js'
 import { NewsCollectorStore, NewsCollector } from './domain/news/index.js'
 import { createNewsArchiveTools } from './tool/news.js'
+import { createResearchShadowTools } from './tool/research.js'
 
 // ==================== Persistence paths ====================
 
@@ -211,6 +212,9 @@ async function main() {
   toolCenter.register(createAnalysisTools(equityClient, cryptoClient, currencyClient, commodityClient), 'analysis')
   toolCenter.register(createEconomyTools(economyClient, commodityClient), 'economy')
   toolCenter.register(createNotifyUserTool(), 'notify')
+  // Strategy-shadow standings — research evidence only, never a signal
+  // (docs/strategy-shadow-track-v0.md; ledgers written by the UTA process).
+  toolCenter.register(createResearchShadowTools(), 'research')
 
   console.log(`tool-center: ${toolCenter.list().length} tools registered`)
 

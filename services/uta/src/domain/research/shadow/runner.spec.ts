@@ -320,6 +320,30 @@ describe('processStrategyTick — unknown semantics (operational fail-safe)', ()
     }))).rejects.toThrow()
   })
 
+  it('a GRAY-carry strategy chains prevStance correctly THROUGH a multi-day backfill', async () => {
+    const seen: Array<string | undefined> = []
+    const carry: DailyStrategy = {
+      ...alwaysLong,
+      compute: (ctx) => { seen.push(ctx.prevStance); return { stance: ctx.prevStance ?? 'long' } },
+    }
+    // Anchor day: no prevStance → long.
+    await processStrategyTick(deps({ strategy: carry, klines: candlesEnding('2026-06-14', [100, 100]) }))
+    // 3 missed closes backfilled in ONE tick: the chain must link day-by-day
+    // through the working view, identical to live ticks.
+    await processStrategyTick(deps({
+      strategy: carry,
+      nowIso: '2026-06-18T08:00:00Z',
+      klines: candlesEnding('2026-06-17', [100, 100, 100, 100, 100]),
+    }))
+    expect(seen).toEqual([undefined, 'long', 'long', 'long'])
+    const eff = effectiveRows(await readRows())
+    for (const day of ['2026-06-15', '2026-06-16', '2026-06-17']) {
+      const row = eff.get(day)
+      if (row?.kind !== 'day') throw new Error(`expected day row for ${day}`)
+      expect(row.stance).toBe('long')
+    }
+  })
+
   it('prevStance is chained from the ledger and absent after a broken chain', async () => {
     const seen: Array<string | undefined> = []
     const probe: DailyStrategy = {

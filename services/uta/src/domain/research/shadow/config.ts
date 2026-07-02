@@ -93,7 +93,10 @@ export async function seedResearchShadowConfig(filePath: string = researchShadow
   } catch { /* missing → seed */ }
   const seed: ResearchShadowConfig = {
     ...CODE_DEFAULTS,
-    strategies: { 'buy-and-hold-v0': { enabled: true } },
+    strategies: {
+      'buy-and-hold-v0': { enabled: true },
+      'regime-trend-v0-shadow': { enabled: true },
+    },
   }
   try {
     await mkdir(dirname(filePath), { recursive: true })
