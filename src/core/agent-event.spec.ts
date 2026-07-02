@@ -10,6 +10,7 @@ describe('AgentEventSchemas', () => {
     'message.received', 'message.sent',
     'agent.work.requested', 'agent.work.done', 'agent.work.skip', 'agent.work.error',
     'trading.risk_gate.verdict',
+    'trading.regime.zone',
   ]
 
   it('should have a schema for every key in AgentEventMap', () => {
@@ -204,6 +205,35 @@ describe('validateEventPayload', () => {
       accountId: 'a', pendingHash: null, trigger: 'bogus', mode: 'observe',
       result: 'PASS', enforced: false, configSource: 'defaults', verdicts: [],
     })).toThrow(/Invalid payload.*trading\.risk_gate\.verdict/)
+  })
+
+  // -- trading.regime.zone --
+  it('should accept a good regime-zone reading', () => {
+    expect(() => validateEventPayload('trading.regime.zone', {
+      symbol: 'BTCUSDT',
+      dateUtc: '2026-06-29',
+      zone: 'BULL',
+      close: '110000',
+      sma200: '100000',
+      dataAgeHours: 6.5,
+    })).not.toThrow()
+  })
+
+  it('should accept an UNKNOWN regime-zone reading with error', () => {
+    expect(() => validateEventPayload('trading.regime.zone', {
+      symbol: 'BTCUSDT',
+      dateUtc: '2026-06-29',
+      zone: 'UNKNOWN',
+      error: 'kline fetch failed',
+    })).not.toThrow()
+  })
+
+  it('should reject an invalid regime zone value', () => {
+    expect(() => validateEventPayload('trading.regime.zone', {
+      symbol: 'BTCUSDT',
+      dateUtc: '2026-06-29',
+      zone: 'SIDEWAYS',
+    })).toThrow(/Invalid payload.*trading\.regime\.zone/)
   })
 
   // -- unregistered types --

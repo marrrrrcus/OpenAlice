@@ -82,6 +82,44 @@ export function findPositionFor(
   return positions.find(p => contractsMatch(p.contract, contract))
 }
 
+/**
+ * Broker-native instrument key from a stamped contract — the segment after
+ * the first `|` of aliceId (`accountId|nativeKey`). For ccxt this is the
+ * unified symbol ("BTC/USDT:USDT"), which is what the regime veto's
+ * gatedInstruments allowlist matches against (Contract.symbol is only the
+ * BASE, e.g. "BTC" — never use it for instrument identity).
+ */
+export function nativeKeyOf(contract: Contract | undefined): string | undefined {
+  const aliceId = contract?.aliceId
+  if (!aliceId) return undefined
+  const sep = aliceId.indexOf('|')
+  return sep === -1 ? undefined : aliceId.slice(sep + 1)
+}
+
+/**
+ * The order side an operation would trade at the broker: placeOrder → its
+ * own action; modifyOrder → the located resting order's action; everything
+ * else has no marketable side.
+ */
+export function effectiveOrderSide(
+  op: Operation,
+  restingOrders: readonly OpenOrder[],
+): 'BUY' | 'SELL' | undefined {
+  if (op.action === 'placeOrder') {
+    const side = op.order?.action
+    return side === 'BUY' || side === 'SELL' ? side : undefined
+  }
+  if (op.action === 'modifyOrder') {
+    const resting = restingOrders.find(o => {
+      const oid = (o.order as unknown as { orderId?: number | string }).orderId
+      return oid !== undefined && String(oid) === op.orderId
+    })
+    const side = resting?.order?.action
+    return side === 'BUY' || side === 'SELL' ? side : undefined
+  }
+  return undefined
+}
+
 // ==================== Allowance pool ====================
 
 interface AllowanceEntry {

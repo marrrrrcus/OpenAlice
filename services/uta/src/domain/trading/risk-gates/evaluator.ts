@@ -26,13 +26,15 @@ import type {
 } from '@traderalice/uta-protocol'
 import { decOrUndef } from './decimal-io.js'
 import { computeIntentLedger } from './intent.js'
-import type { RiskGatesConfigResolution } from './config.js'
+import type { RiskGatesConfigResolution, RegimeVetoConfig } from './config.js'
 import type { RiskGateStateStore } from './state.js'
-import type { RiskGateContext, QuotePrice, RiskGate } from './types.js'
+import type { RiskGateContext, QuotePrice, RiskGate, MarketDataSlot, MarketDatum } from './types.js'
 import { g1MaxOrderNotional } from './gates/g1-max-order-notional.js'
 import { g2MaxTotalExposure } from './gates/g2-max-total-exposure.js'
 import { g3DailyLossBreaker } from './gates/g3-daily-loss-breaker.js'
 import { g4RateAndDuplicate } from './gates/g4-rate-and-duplicate.js'
+import { regimeVeto, hasGatedShortIncreasing, regimeMarketDataKey } from './gates/regime-veto.js'
+import { getRegimeReading as defaultGetRegimeReading, type RegimeReading } from './regime/provider.js'
 
 // ==================== Inputs ====================
 
@@ -64,8 +66,10 @@ export interface EvaluateRiskGatesArgs {
   loadConfig: () => Promise<RiskGatesConfigResolution>
   stateStore: RiskGateStateStore
   now?: () => Date
-  /** Override the gate list (tests / future Phase 2 wiring). */
+  /** Override the gate list (tests). */
   gates?: readonly RiskGate[]
+  /** Regime reading override (tests) — default hits the Binance-spot provider. */
+  getRegimeReading?: (cfg: RegimeVetoConfig) => Promise<RegimeReading>
 }
 
 const DEFAULT_GATES: readonly RiskGate[] = [
@@ -73,6 +77,7 @@ const DEFAULT_GATES: readonly RiskGate[] = [
   g2MaxTotalExposure,
   g3DailyLossBreaker,
   g4RateAndDuplicate,
+  regimeVeto,
 ]
 
 // ==================== Evaluation ====================
@@ -189,6 +194,36 @@ export async function evaluateRiskGates(args: EvaluateRiskGatesArgs): Promise<Ri
     operations: args.operations,
   })
 
+  // Regime reading — LAZY prefetch (extension point 1): only when the veto
+  // is on AND this push contains a short-increasing op on a gated
+  // instrument. The provider caches per UTC day, so this is ~1 Binance call
+  // per day process-wide; pushes the veto cannot touch never fetch at all.
+  let marketData: MarketDataSlot | undefined
+  const rvCfg = config.regimeVeto
+  if (rvCfg && rvCfg.mode !== 'off') {
+    const probe = {
+      operations: args.operations,
+      intents: ledger.operationIntents,
+      restingOrders: snapshot.restingOrders,
+    }
+    if (hasGatedShortIncreasing(probe, rvCfg)) {
+      let reading: RegimeReading
+      try {
+        reading = await (args.getRegimeReading ?? defaultGetRegimeReading)(rvCfg)
+      } catch (err) {
+        reading = { zone: 'UNKNOWN', reason: err instanceof Error ? err.message : String(err) }
+      }
+      const computedFrom = reading.computedFrom ?? now.toISOString()
+      const datum: MarketDatum = {
+        value: reading,
+        computedFrom,
+        staleAfter: new Date(Date.parse(computedFrom) + rvCfg.regimeStaleAfterHours * 3_600_000).toISOString(),
+      }
+      const key = regimeMarketDataKey(rvCfg.regimeSource.symbol)
+      marketData = { get: (k) => (k === key ? datum : undefined) }
+    }
+  }
+
   const ctx: RiskGateContext = {
     accountId: args.accountId,
     evaluatedAt: now,
@@ -206,6 +241,7 @@ export async function evaluateRiskGates(args: EvaluateRiskGatesArgs): Promise<Ri
     preview: args.trigger === 'preview',
     intents: ledger.operationIntents,
     restingIntents: ledger.restingIntents,
+    marketData,
     fxWarnings,
   }
 

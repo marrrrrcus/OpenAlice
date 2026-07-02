@@ -35,6 +35,7 @@ import {
   createRiskGatesConfigLoader,
   createRiskGateStateStore,
   RiskGateBlockedError,
+  type EvaluateRiskGatesArgs,
   type FxLike,
   type RiskGateSnapshot,
   type RiskGatesConfigResolution,
@@ -66,6 +67,8 @@ export interface RiskGateAccountOptions {
   loadConfig?: () => Promise<RiskGatesConfigResolution>
   stateStore?: RiskGateStateStore
   now?: () => Date
+  /** Regime reading override (tests) — default hits the Binance-spot provider. */
+  getRegimeReading?: EvaluateRiskGatesArgs['getRegimeReading']
 }
 
 export interface UnifiedTradingAccountOptions {
@@ -564,6 +567,7 @@ export class UnifiedTradingAccount {
       loadConfig: rg.loadConfig ?? (this._riskGateLoadConfig ??= createRiskGatesConfigLoader()),
       stateStore: rg.stateStore ?? (this._riskGateStateStore ??= createRiskGateStateStore(this.id)),
       now: rg.now,
+      getRegimeReading: rg.getRegimeReading,
     })
     // Await the (possibly async) audit sink so the record is durably
     // appended before broker execution — but swallow every failure, sync or

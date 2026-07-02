@@ -19,6 +19,13 @@ const BASE: RiskGateThresholds = {
   duplicateWindowSec: 120,
   snapshotMaxAgeSec: 300,
   allowDegradedRestingScope: false,
+  regimeVeto: {
+    mode: 'off', // regime-veto behavior is covered by its own spec file
+    gatedInstruments: ['BTC/USDT:USDT'],
+    regimeSource: { venue: 'binance_spot', symbol: 'BTCUSDT' },
+    regimeStaleAfterHours: 30,
+    spec: 'regime-risk-gate-v0@70eb587',
+  },
 }
 
 function okConfig(overrides: Partial<RiskGateThresholds> = {}): RiskGatesConfigResolution {

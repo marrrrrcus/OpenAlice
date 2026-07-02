@@ -21,7 +21,12 @@ import {
   createSnapshotScheduler,
 } from './domain/trading/index.js'
 import { FxService } from './domain/trading/fx-service.js'
-import { seedRiskGatesConfig } from './domain/trading/risk-gates/index.js'
+import {
+  seedRiskGatesConfig,
+  createRiskGatesConfigLoader,
+  getRegimeReading,
+  startRegimeShadow,
+} from './domain/trading/risk-gates/index.js'
 import {
   getSDKExecutor,
   buildRouteMap,
@@ -100,6 +105,36 @@ async function main(): Promise<void> {
     console.log(`[uta] snapshot scheduler started (every ${config.snapshot.every})`)
   }
 
+  // ==================== Regime shadow (Phase 2 observe track) ====================
+  // Daily BTC regime-zone reading logged to the event log — the auditable
+  // record behind the regime-veto observe-exit criterion. Independent of
+  // whether any short intent ever fires. Started when the defaults-level OR
+  // ANY account-level regimeVeto mode is non-off (an account can enable the
+  // veto without touching the defaults and still gets its evidence trail).
+  //
+  // NOTE: this startup decision follows the UTA's global reload model — the
+  // startup path IS the reload path (see file header). Changing
+  // risk-gates.json regimeVeto modes affects gate evaluation immediately
+  // (config is read per evaluation) but the shadow timer only re-evaluates
+  // on the next UTA restart (data/control/restart-uta.flag).
+  let regimeShadow: { stop(): void } | undefined
+  try {
+    const rgResolution = await createRiskGatesConfigLoader()()
+    if (rgResolution.status === 'ok') {
+      const candidates = [
+        rgResolution.forAccount('__defaults__', '').regimeVeto,
+        ...survivors.map(acc => rgResolution.forAccount(acc.id, acc.presetId).regimeVeto),
+      ]
+      const active = candidates.find(rv => rv.mode !== 'off')
+      if (active) {
+        regimeShadow = startRegimeShadow({ getReading: getRegimeReading, cfg: active, eventLog })
+        console.log(`[uta] regime shadow started (${active.regimeSource.symbol}, mode=${active.mode}; restart UTA to apply regimeVeto config changes to the shadow)`)
+      }
+    }
+  } catch (err) {
+    console.warn('[uta] regime shadow not started:', err instanceof Error ? err.message : err)
+  }
+
   // ==================== Catalog refresh ====================
   // Brokers that cache catalog (Alpaca / CCXT / Mock) need periodic refresh.
   // No-op for brokers that query server-side. Lifted from src/main.ts:460-470.
@@ -155,6 +190,7 @@ async function main(): Promise<void> {
     stopping = true
     console.log(`[uta] ${signal} → shutdown`)
     clearInterval(catalogRefreshTimer)
+    regimeShadow?.stop()
     snapshotScheduler.stop()
     server.close()
     await utaManager.closeAll().catch(() => { /* swallow during shutdown */ })

@@ -448,7 +448,9 @@ export class MockBroker implements IBroker {
     this._record('getOpenOrders', [])
     const out: OpenOrder[] = []
     for (const internal of this._orders.values()) {
-      if (internal.status !== 'Submitted' && internal.status !== 'PreSubmitted') continue
+      // MockBroker's internal status union has no PreSubmitted state —
+      // 'Submitted' IS the full working-order set here.
+      if (internal.status !== 'Submitted') continue
       const orderState = new OrderState()
       orderState.status = internal.status
       out.push({ contract: internal.contract, order: internal.order, orderState })

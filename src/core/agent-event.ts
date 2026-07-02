@@ -115,6 +115,25 @@ export interface TradingRiskGateVerdictPayload {
 // Import the actual CronFirePayload type for use in the map
 import type { CronFirePayload } from '../task/cron/engine.js'
 
+// ---- Regime shadow (docs/regime-veto-onboarding-v0.md observe track) ----
+//
+// One entry per UTC day: the live regime zone computed from Binance spot
+// daily closes. This is the auditable record behind the ">=30 computed days
+// within a 45-day window" observe-exit criterion. Emitted by the UTA
+// service's regime shadow timer (same direct-append precedent as
+// trading.risk_gate.verdict).
+
+export interface TradingRegimeZonePayload {
+  symbol: string
+  dateUtc: string
+  zone: 'BULL' | 'BEAR' | 'GRAY' | 'UNKNOWN'
+  close?: string
+  sma200?: string
+  dataAgeHours?: number
+  /** Populated when zone is UNKNOWN. */
+  error?: string
+}
+
 export interface AgentEventMap {
   'cron.fire': CronFirePayload
   'message.received': MessageReceivedPayload
@@ -124,6 +143,7 @@ export interface AgentEventMap {
   'agent.work.skip':      AgentWorkSkipPayload
   'agent.work.error':     AgentWorkErrorPayload
   'trading.risk_gate.verdict': TradingRiskGateVerdictPayload
+  'trading.regime.zone': TradingRegimeZonePayload
 }
 
 // ==================== TypeBox Schemas ====================
@@ -192,6 +212,21 @@ const AgentWorkErrorSchema = Type.Object({
   metadata: Type.Optional(Type.Record(Type.String(), Type.Unknown())),
 })
 
+const TradingRegimeZoneSchema = Type.Object({
+  symbol: Type.String(),
+  dateUtc: Type.String(),
+  zone: Type.Union([
+    Type.Literal('BULL'),
+    Type.Literal('BEAR'),
+    Type.Literal('GRAY'),
+    Type.Literal('UNKNOWN'),
+  ]),
+  close: Type.Optional(Type.String()),
+  sma200: Type.Optional(Type.String()),
+  dataAgeHours: Type.Optional(Type.Number()),
+  error: Type.Optional(Type.String()),
+})
+
 const TradingRiskGateVerdictSchema = Type.Object({
   accountId: Type.String(),
   pendingHash: Type.Union([Type.String(), Type.Null()]),
@@ -257,6 +292,10 @@ export const AgentEvents: { [K in keyof AgentEventMap]: AgentEventMeta } = {
   'trading.risk_gate.verdict': {
     schema: TradingRiskGateVerdictSchema,
     description: 'Risk-gate pipeline evaluated a pending trading commit (docs/risk-gate-pipeline-v0.md). One event per evaluation with every gate verdict; enforced=true means a push was actually blocked. Audit trail for the observe-mode exit review.',
+  },
+  'trading.regime.zone': {
+    schema: TradingRegimeZoneSchema,
+    description: 'Daily regime-shadow reading (docs/regime-veto-onboarding-v0.md): the live BTC regime zone computed from Binance spot daily closes. One good entry per UTC day; UNKNOWN entries carry the failure reason. Evidence track for the regime-veto observe exit.',
   },
 }
 

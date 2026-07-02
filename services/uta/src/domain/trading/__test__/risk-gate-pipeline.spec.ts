@@ -26,9 +26,19 @@ const BASE: RiskGateThresholds = {
   duplicateWindowSec: 120,
   snapshotMaxAgeSec: 300,
   allowDegradedRestingScope: false,
+  regimeVeto: {
+    mode: 'off', // enabled per-test below
+    gatedInstruments: ['AAPL'], // MockBroker nativeKey = ticker
+    regimeSource: { venue: 'binance_spot', symbol: 'BTCUSDT' },
+    regimeStaleAfterHours: 30,
+    spec: 'regime-risk-gate-v0@70eb587',
+  },
 }
 
-function makeAccount(configRef: { current: RiskGateThresholds }) {
+function makeAccount(
+  configRef: { current: RiskGateThresholds },
+  opts: { getRegimeReading?: () => Promise<import('../risk-gates/index.js').RegimeReading> } = {},
+) {
   const broker = new MockBroker({ cash: 100_000 })
   broker.setQuote('AAPL', 150)
   const reports: Array<{ report: RiskGateStatus; meta: { trigger: string; enforced: boolean } }> = []
@@ -43,6 +53,7 @@ function makeAccount(configRef: { current: RiskGateThresholds }) {
       loadConfig,
       stateStore: createMemoryRiskGateStateStore(),
       onReport: (report, meta) => { reports.push({ report, meta }) },
+      ...(opts.getRegimeReading ? { getRegimeReading: opts.getRegimeReading } : {}),
     },
   })
   return { broker, uta, reports }
@@ -245,6 +256,41 @@ describe('risk-gate pipeline through UnifiedTradingAccount.push()', () => {
     uta.stagePlaceOrder({ aliceId: 'mock-paper|AAPL', symbol: 'AAPL', action: 'BUY', orderType: 'MKT', totalQuantity: '1' })
     uta.commit('audit sink failure must not matter')
     const result = await uta.push() // must not throw / no unhandled rejection
+    expect(result.submitted).toHaveLength(1)
+  })
+
+  it('Phase 2 end-to-end: SHORT in BULL is blocked; the same short in BEAR executes', async () => {
+    configRef.current = {
+      ...BASE,
+      regimeVeto: { ...BASE.regimeVeto, mode: 'enforce' }, // gatedInstruments: ['AAPL']
+    }
+    let zone: 'BULL' | 'BEAR' = 'BULL'
+    const { broker, uta } = makeAccount(configRef, {
+      getRegimeReading: async () => ({
+        zone,
+        close: '110',
+        sma200: '100',
+        computedFrom: new Date().toISOString(),
+        dataAgeHours: 6,
+      }),
+    })
+    await uta.waitForConnect()
+
+    // Short-open (SELL, no position) on the gated instrument in BULL → BLOCK.
+    uta.stagePlaceOrder({ aliceId: 'mock-paper|AAPL', symbol: 'AAPL', action: 'SELL', orderType: 'LMT', totalQuantity: '2', lmtPrice: '150' })
+    uta.commit('short into a bull regime')
+    const err = await uta.push().catch(e => e as RiskGateBlockedError)
+    expect(err).toBeInstanceOf(RiskGateBlockedError)
+    const v = (err as RiskGateBlockedError).report.verdicts.find(x => x.gate === 'REGIME_VETO')
+    expect(v?.result).toBe('BLOCK')
+    expect(v?.code).toBe('REGIME_BULL_SHORT_VETO')
+    expect(await broker.getPositions()).toHaveLength(0)
+    expect(uta.status().pendingMessage).toBe('short into a bull regime') // intact
+
+    // Same pending commit, regime flips to BEAR → the veto passes (with the
+    // non-endorsement annotation) and the push executes.
+    zone = 'BEAR'
+    const result = await uta.push()
     expect(result.submitted).toHaveLength(1)
   })
 

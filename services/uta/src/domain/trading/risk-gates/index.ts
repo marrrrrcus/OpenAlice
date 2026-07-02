@@ -40,3 +40,23 @@ export { g1MaxOrderNotional, GATE_G1 } from './gates/g1-max-order-notional.js'
 export { g2MaxTotalExposure, GATE_G2 } from './gates/g2-max-total-exposure.js'
 export { g3DailyLossBreaker, GATE_G3 } from './gates/g3-daily-loss-breaker.js'
 export { g4RateAndDuplicate, GATE_G4, canonicalIntentKey } from './gates/g4-rate-and-duplicate.js'
+export {
+  regimeVeto,
+  GATE_REGIME,
+  regimeMarketDataKey,
+  shortIncreasingIndices,
+  hasGatedShortIncreasing,
+} from './gates/regime-veto.js'
+export { effectiveOrderSide, nativeKeyOf } from './intent.js'
+export type { RegimeVetoConfig } from './config.js'
+export { computeZone, SMA_WINDOW, type RegimeZone, type ZoneResult } from './regime/zone.js'
+export {
+  createRegimeProvider,
+  getRegimeReading,
+  type RegimeReading,
+  type RegimeProvider,
+  type RegimeSourceConfig,
+  type FetchKlines,
+  type KlineRow,
+} from './regime/provider.js'
+export { startRegimeShadow, type RegimeShadowOptions } from './regime/shadow.js'

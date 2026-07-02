@@ -18,6 +18,30 @@ import { dataPath } from '@/core/paths.js'
 
 // ==================== Schema ====================
 
+// Phase 2 — regime veto (docs/regime-veto-onboarding-v0.md, validated rule
+// SHORT in BULL → BLOCK from regime-risk-gate-v0@70eb587). Execution
+// instruments (broker/ccxt nativeKey notation) and the regime SOURCE
+// (Binance spot BTCUSDT — fixed by the validation) are deliberately
+// separate keys; conflating them is a symbol-mapping bug the config shape
+// forbids. The veto has its OWN mode, independent of the pipeline mode.
+const regimeVetoSchema = z.object({
+  mode: z.enum(['off', 'observe', 'enforce']).default('observe'),
+  gatedInstruments: z.array(z.string()).default(['BTC/USDT:USDT']),
+  regimeSource: z.object({
+    // Literal, not free string: the provider only speaks Binance spot (the
+    // venue the validation was computed from). A config claiming another
+    // venue would silently still hit Binance — schema-invalid is honest,
+    // silent substitution is not. Extending venues = a schema change here
+    // AND a provider implementation, deliberately.
+    venue: z.literal('binance_spot').default('binance_spot'),
+    symbol: z.string().default('BTCUSDT'),
+  }).default({ venue: 'binance_spot', symbol: 'BTCUSDT' }),
+  regimeStaleAfterHours: z.number().positive().default(30),
+  spec: z.string().default('regime-risk-gate-v0@70eb587'),
+})
+
+export type RegimeVetoConfig = z.infer<typeof regimeVetoSchema>
+
 const thresholdsSchema = z.object({
   mode: z.enum(['off', 'observe', 'enforce']).default('observe'),
   // G1 — effective cap = min(absolute cap, pct-of-equity)
@@ -37,6 +61,14 @@ const thresholdsSchema = z.object({
   // degraded scope BLOCKS risk-increasing pushes (Marcus's P1 ruling —
   // fail-closed by default, relaxation must leave a config-file trace).
   allowDegradedRestingScope: z.boolean().default(false),
+  // Phase 2 regime veto (per-gate mode; see regimeVetoSchema above).
+  regimeVeto: regimeVetoSchema.default({
+    mode: 'observe',
+    gatedInstruments: ['BTC/USDT:USDT'],
+    regimeSource: { venue: 'binance_spot', symbol: 'BTCUSDT' },
+    regimeStaleAfterHours: 30,
+    spec: 'regime-risk-gate-v0@70eb587',
+  }),
 })
 
 const riskGatesFileSchema = z.object({
@@ -67,6 +99,18 @@ function resolveFor(
   const fileDefaults = file?.defaults ?? {}
   const account = file?.accounts?.[accountId] ?? {}
   const merged: RiskGateThresholds = { ...CODE_DEFAULTS, ...fileDefaults, ...account }
+  // regimeVeto is a nested object — a shallow spread would let a partial
+  // per-account block wipe the defaults. Deep-merge one level.
+  merged.regimeVeto = {
+    ...CODE_DEFAULTS.regimeVeto,
+    ...(fileDefaults.regimeVeto ?? {}),
+    ...(account.regimeVeto ?? {}),
+    regimeSource: {
+      ...CODE_DEFAULTS.regimeVeto.regimeSource,
+      ...(fileDefaults.regimeVeto?.regimeSource ?? {}),
+      ...(account.regimeVeto?.regimeSource ?? {}),
+    },
+  }
   // Mode precedence: explicit per-account > mock-preset enforce > file default
   // > code default (observe). "Mock enforces from day one" is keyed off the
   // preset (id 'mock-simulator'), not an account literally named "mock".
