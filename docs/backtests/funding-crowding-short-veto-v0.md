@@ -52,11 +52,11 @@ fresh sample.
   only (pipeline intent-ledger definition of short-increasing; provably
   risk-reducing sells stay exempt).
 - **NOT in scope:** the short-perp leg of a delta-neutral carry **pair**
-  (the future `funding-carry-harvest-v0` premise — a pair is an atomic
-  intent with its own future classification, never a naked short); LONG
-  intents; extreme *negative* funding (the mirrored long-side veto is a
-  separate hypothesis, not to be added after seeing results); ETH/alts;
-  OI/liquidation/news conditioning.
+  ([funding-carry-harvest-v0.md](funding-carry-harvest-v0.md) territory —
+  a pair is an atomic intent with its own future classification, never a
+  naked short); LONG intents; extreme *negative* funding (the mirrored
+  long-side veto is a separate hypothesis, not to be added after seeing
+  results); ETH/alts; OI/liquidation/news conditioning.
 
 ## Data / venue / window
 
@@ -211,5 +211,5 @@ and residual-set CSVs, over-filter table. No one-off console tables.
   *incrementally*.
 - [../trade-proposal-principles.md](../trade-proposal-principles.md) —
   funding extremes were always tiered as gates, never as direction.
-- future `funding-carry-harvest-v0` (pre-registration pending) — the
+- [funding-carry-harvest-v0.md](funding-carry-harvest-v0.md) — the
   delta-neutral pair premise this veto explicitly does NOT govern.
