@@ -32,7 +32,9 @@ export {
 } from './state.js'
 export {
   evaluateRiskGates,
+  evaluateRiskGatesDetailed,
   type EvaluateRiskGatesArgs,
+  type RiskGateEvaluationDetail,
   type RiskGateSnapshot,
   type FxLike,
 } from './evaluator.js'
@@ -53,6 +55,7 @@ export { computeZone, SMA_WINDOW, type RegimeZone, type ZoneResult } from './reg
 export {
   createRegimeProvider,
   getRegimeReading,
+  peekRegimeReading,
   fetchBinanceSpotKlines,
   type RegimeReading,
   type RegimeProvider,

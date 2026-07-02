@@ -25,7 +25,7 @@ import type {
   Quote,
 } from '@traderalice/uta-protocol'
 import { decOrUndef } from './decimal-io.js'
-import { computeIntentLedger } from './intent.js'
+import { computeIntentLedger, type OperationIntent } from './intent.js'
 import type { RiskGatesConfigResolution, RegimeVetoConfig } from './config.js'
 import type { RiskGateStateStore } from './state.js'
 import type { RiskGateContext, QuotePrice, RiskGate, MarketDataSlot, MarketDatum } from './types.js'
@@ -82,7 +82,29 @@ const DEFAULT_GATES: readonly RiskGate[] = [
 
 // ==================== Evaluation ====================
 
+/**
+ * Evaluation detail — the report plus the internals a research capture
+ * (Track D) needs without re-fetching or re-deriving: the commit-level
+ * intent ledger, the snapshot the gates saw, and the quote cache (the
+ * prices the gates actually used). The optional fields are ABSENT on the
+ * early-return paths (invalid config, mode off, snapshot failure) — a
+ * consumer must treat absence as "the pipeline did not classify", never
+ * guess. Internal shape only; wire types (RiskGateStatus) are untouched.
+ */
+export interface RiskGateEvaluationDetail {
+  report: RiskGateStatus
+  intents?: OperationIntent[]
+  restingIntents?: OperationIntent[]
+  snapshot?: RiskGateSnapshot
+  quotes?: ReadonlyMap<string, QuotePrice | null>
+}
+
+/** Report-only wrapper — every pre-Track-D caller keeps this signature. */
 export async function evaluateRiskGates(args: EvaluateRiskGatesArgs): Promise<RiskGateStatus> {
+  return (await evaluateRiskGatesDetailed(args)).report
+}
+
+export async function evaluateRiskGatesDetailed(args: EvaluateRiskGatesArgs): Promise<RiskGateEvaluationDetail> {
   const now = args.now?.() ?? new Date()
   const evaluatedAt = now.toISOString()
 
@@ -114,18 +136,20 @@ export async function evaluateRiskGates(args: EvaluateRiskGatesArgs): Promise<Ri
           reason: `risk-gate config invalid (${configRes.error}) — only the reduce-only path is open; fix data/config/risk-gates.json`,
         }
     return {
-      mode: 'enforce', // a broken safety config is never allowed to relax anything
-      result: verdict.result === 'BLOCK' ? 'BLOCK' : 'PASS',
-      verdicts: [verdict],
-      evaluatedAt,
-      configSource: 'invalid',
+      report: {
+        mode: 'enforce', // a broken safety config is never allowed to relax anything
+        result: verdict.result === 'BLOCK' ? 'BLOCK' : 'PASS',
+        verdicts: [verdict],
+        evaluatedAt,
+        configSource: 'invalid',
+      },
     }
   }
 
   const config = configRes.forAccount(args.accountId, args.presetId)
 
   if (config.mode === 'off') {
-    return { mode: 'off', result: 'PASS', verdicts: [], evaluatedAt, configSource: config.source }
+    return { report: { mode: 'off', result: 'PASS', verdicts: [], evaluatedAt, configSource: config.source } }
   }
 
   // ---- Snapshot (broker state) ----
@@ -134,16 +158,18 @@ export async function evaluateRiskGates(args: EvaluateRiskGatesArgs): Promise<Ri
     snapshot = await args.getSnapshot()
   } catch (err) {
     return {
-      mode: config.mode,
-      result: 'BLOCK',
-      verdicts: [{
-        gate: 'PIPELINE',
+      report: {
+        mode: config.mode,
         result: 'BLOCK',
-        code: 'STATE_UNAVAILABLE',
-        reason: `cannot fetch account state: ${err instanceof Error ? err.message : String(err)} (fail-closed)`,
-      }],
-      evaluatedAt,
-      configSource: config.source,
+        verdicts: [{
+          gate: 'PIPELINE',
+          result: 'BLOCK',
+          code: 'STATE_UNAVAILABLE',
+          reason: `cannot fetch account state: ${err instanceof Error ? err.message : String(err)} (fail-closed)`,
+        }],
+        evaluatedAt,
+        configSource: config.source,
+      },
     }
   }
 
@@ -265,10 +291,16 @@ export async function evaluateRiskGates(args: EvaluateRiskGatesArgs): Promise<Ri
   }
 
   return {
-    mode: config.mode,
-    result: verdicts.some(v => v.result === 'BLOCK') ? 'BLOCK' : 'PASS',
-    verdicts,
-    evaluatedAt,
-    configSource: config.source,
+    report: {
+      mode: config.mode,
+      result: verdicts.some(v => v.result === 'BLOCK') ? 'BLOCK' : 'PASS',
+      verdicts,
+      evaluatedAt,
+      configSource: config.source,
+    },
+    intents: ledger.operationIntents,
+    restingIntents: ledger.restingIntents,
+    snapshot,
+    quotes: quoteCache,
   }
 }

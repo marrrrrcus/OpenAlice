@@ -50,6 +50,14 @@ export async function fetchBinanceSpotKlines(symbol: string, limit: number): Pro
 
 export interface RegimeProvider {
   getReading(cfg: RegimeSourceConfig): Promise<RegimeReading>
+  /**
+   * Cache-only synchronous read — NEVER fetches. Returns the day's good
+   * reading iff it still satisfies the CURRENT staleness config, else
+   * undefined. Exists for capture paths (Track D decision recorder) that
+   * must not add network latency to push/reject/409 responses: an absent
+   * cache is answered with UNKNOWN by the caller, never with a fetch.
+   */
+  peekReading(cfg: RegimeSourceConfig): RegimeReading | undefined
 }
 
 export function createRegimeProvider(deps: { fetchKlines?: FetchKlines; now?: () => Date } = {}): RegimeProvider {
@@ -57,7 +65,22 @@ export function createRegimeProvider(deps: { fetchKlines?: FetchKlines; now?: ()
   const now = deps.now ?? (() => new Date())
   const cache = new Map<string, { dateUtc: string; reading: RegimeReading; at: number }>()
 
+  const isStillFresh = (cached: { dateUtc: string; reading: RegimeReading }, cfg: RegimeSourceConfig, nowDate: Date, dateUtc: string): boolean =>
+    cached.reading.zone !== 'UNKNOWN' &&
+    cached.dateUtc === dateUtc &&
+    cached.reading.computedFrom !== undefined &&
+    (nowDate.getTime() - Date.parse(cached.reading.computedFrom)) / 3_600_000 <= cfg.regimeStaleAfterHours
+
   return {
+    peekReading(cfg: RegimeSourceConfig): RegimeReading | undefined {
+      if (cfg.regimeSource.venue !== 'binance_spot') return undefined
+      const nowDate = now()
+      const dateUtc = nowDate.toISOString().slice(0, 10)
+      const cached = cache.get(cfg.regimeSource.symbol)
+      if (!cached) return undefined
+      return isStillFresh(cached, cfg, nowDate, dateUtc) ? cached.reading : undefined
+    },
+
     async getReading(cfg: RegimeSourceConfig): Promise<RegimeReading> {
       // Defensive venue guard (the config schema already pins the literal,
       // but a programmatic caller must not silently get Binance data under
@@ -75,15 +98,10 @@ export function createRegimeProvider(deps: { fetchKlines?: FetchKlines; now?: ()
         // satisfies the CURRENT staleness config. If the operator tightens
         // regimeStaleAfterHours, or the day drags past the bound with no new
         // close, the cache must not keep vouching for stale data.
-        const stillFresh =
-          cached.reading.zone !== 'UNKNOWN' &&
-          cached.dateUtc === dateUtc &&
-          cached.reading.computedFrom !== undefined &&
-          (nowDate.getTime() - Date.parse(cached.reading.computedFrom)) / 3_600_000 <= cfg.regimeStaleAfterHours
         const failureCooling =
           cached.reading.zone === 'UNKNOWN' &&
           nowDate.getTime() - cached.at < FAILURE_TTL_MS
-        if (stillFresh || failureCooling) return cached.reading
+        if (isStillFresh(cached, cfg, nowDate, dateUtc) || failureCooling) return cached.reading
       }
 
       const reading = await compute(fetchKlines, symbol, cfg.regimeStaleAfterHours, nowDate)
@@ -141,4 +159,14 @@ let defaultProvider: RegimeProvider | undefined
 export function getRegimeReading(cfg: RegimeSourceConfig): Promise<RegimeReading> {
   defaultProvider ??= createRegimeProvider()
   return defaultProvider.getReading(cfg)
+}
+
+/**
+ * Cache-only synchronous peek at the module-level provider — NEVER fetches
+ * and NEVER instantiates the provider (a peek must be side-effect-free).
+ * undefined = no fresh reading is known right now; the caller answers
+ * UNKNOWN, it does not wait.
+ */
+export function peekRegimeReading(cfg: RegimeSourceConfig): RegimeReading | undefined {
+  return defaultProvider?.peekReading(cfg)
 }

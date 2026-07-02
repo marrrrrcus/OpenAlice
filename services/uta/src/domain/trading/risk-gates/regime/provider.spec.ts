@@ -96,6 +96,29 @@ describe('regime provider', () => {
     expect(fetchKlines).not.toHaveBeenCalled()
   })
 
+  it('peekReading is cache-only: ZERO fetches ever, fresh-cache hit, stale/absent → undefined', async () => {
+    const klines = makeKlines([...Array(210).fill(100), 110], NOW - 6 * 3_600_000)
+    const fetchKlines = vi.fn(async () => klines)
+    const p = createRegimeProvider({ fetchKlines, now: () => new Date(NOW) })
+
+    // Absent cache: peek answers undefined and fetches NOTHING.
+    expect(p.peekReading(CFG)).toBeUndefined()
+    expect(fetchKlines).toHaveBeenCalledTimes(0)
+
+    // Populate via getReading, then peek hits the cache without a fetch.
+    await p.getReading(CFG)
+    expect(fetchKlines).toHaveBeenCalledTimes(1)
+    expect(p.peekReading(CFG)?.zone).toBe('BULL')
+    expect(fetchKlines).toHaveBeenCalledTimes(1)
+
+    // Tightened staleness bound invalidates the peek — still zero fetches.
+    expect(p.peekReading({ ...CFG, regimeStaleAfterHours: 1 })).toBeUndefined()
+    expect(fetchKlines).toHaveBeenCalledTimes(1)
+
+    // Unsupported venue never peeks a Binance reading.
+    expect(p.peekReading({ ...CFG, regimeSource: { venue: 'coinbase_spot', symbol: 'BTCUSDT' } })).toBeUndefined()
+  })
+
   it('good readings are cached for the UTC day; failures retry after a short TTL', async () => {
     const good = makeKlines([...Array(210).fill(100), 110], NOW - 6 * 3_600_000)
     let clock = NOW

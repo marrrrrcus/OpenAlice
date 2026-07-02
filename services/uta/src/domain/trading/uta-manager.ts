@@ -13,6 +13,7 @@ import { createCcxtProviderTools } from './brokers/ccxt/ccxt-tools.js'
 import { createBroker } from './brokers/factory.js'
 import { getBrokerPreset } from '@traderalice/uta-protocol'
 import { UnifiedTradingAccount } from './UnifiedTradingAccount.js'
+import type { ResearchCaptureSink } from './research-capture.js'
 import { loadGitState, createGitPersister } from './git-persistence.js'
 import { readUTAsConfig, type UTAConfig } from '@/core/config.js'
 import type { EventLog } from '@/core/event-log.js'
@@ -41,6 +42,7 @@ export class UTAManager {
   private eventLog?: EventLog
   private toolCenter?: ToolCenter
   private _snapshotHooks?: SnapshotHooks
+  private _researchSink?: ResearchCaptureSink
   private fxService?: FxService
 
   constructor(deps?: { eventLog: EventLog; toolCenter: ToolCenter; fxService?: FxService }) {
@@ -51,6 +53,16 @@ export class UTAManager {
 
   setSnapshotHooks(hooks: SnapshotHooks): void {
     this._snapshotHooks = hooks
+  }
+
+  /**
+   * Track D research capture sink (docs/human-decision-ledger-v0.md) —
+   * wired LAZILY into every UTA (the closure dereferences at emit time),
+   * so setResearchSink may be called before or after initUTA without a
+   * stale-capture ordering trap.
+   */
+  setResearchSink(sink: ResearchCaptureSink): void {
+    this._researchSink = sink
   }
 
   setFxService(fx: FxService): void {
@@ -72,6 +84,10 @@ export class UTAManager {
       },
       onPostPush: this._snapshotHooks?.onPostPush,
       onPostReject: this._snapshotHooks?.onPostReject,
+      // Lazy dereference — see setResearchSink. (The snapshot hooks above
+      // capture by value; their wiring order in main.ts happens to be safe
+      // for the current call sites, but new hooks must not repeat it.)
+      onResearchCapture: (evt) => this._researchSink?.(evt),
       riskGates: {
         presetId: cfg.presetId,
         // Lazy: FxService is wired via setFxService AFTER the initUTA loop

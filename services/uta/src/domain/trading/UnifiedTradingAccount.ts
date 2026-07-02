@@ -31,7 +31,7 @@ import type {
 } from './git/types.js'
 import { createGuardPipeline, resolveGuards } from './guards/index.js'
 import {
-  evaluateRiskGates,
+  evaluateRiskGatesDetailed,
   createRiskGatesConfigLoader,
   createRiskGateStateStore,
   RiskGateBlockedError,
@@ -41,6 +41,7 @@ import {
   type RiskGatesConfigResolution,
   type RiskGateStateStore,
 } from './risk-gates/index.js'
+import type { ResearchCaptureContext, ResearchCaptureEvent, ResearchCaptureSink } from './research-capture.js'
 import type { RiskGateStatus } from '@traderalice/uta-protocol'
 import './contract-ext.js'
 
@@ -79,6 +80,14 @@ export interface UnifiedTradingAccountOptions {
   onPostPush?: (accountId: string) => void | Promise<void>
   onPostReject?: (accountId: string) => void | Promise<void>
   riskGates?: RiskGateAccountOptions
+  /**
+   * Track D research capture (docs/human-decision-ledger-v0.md). The UTA is
+   * a dumb emitter; every emission is awaited-for-ordering but
+   * catch-and-swallow — the evidence pipeline must never affect the
+   * trading pipeline. Requires riskGates to be wired (captures ride the
+   * gate evaluation's context).
+   */
+  onResearchCapture?: ResearchCaptureSink
 }
 
 // ==================== Stage param types ====================
@@ -119,9 +128,12 @@ export class UnifiedTradingAccount {
 
   // ---- Risk gates (docs/risk-gate-pipeline-v0.md) ----
   private readonly _riskGates?: RiskGateAccountOptions
+  private readonly _onResearchCapture?: ResearchCaptureSink
   private _riskGateLoadConfig?: () => Promise<RiskGatesConfigResolution>
   private _riskGateStateStore?: RiskGateStateStore
-  private _riskGatePreviewCache?: { hash: string; at: number; report: RiskGateStatus }
+  // ctx rides the cache so a reject can hand the recorder the exact context
+  // of the verdict the human was shown (Track D 'rejected' disposition).
+  private _riskGatePreviewCache?: { hash: string; at: number; report: RiskGateStatus; ctx?: ResearchCaptureContext }
   private static readonly RISK_GATE_PREVIEW_TTL_MS = 10_000
 
   // ---- Health tracking ----
@@ -147,6 +159,7 @@ export class UnifiedTradingAccount {
     this._onPostPush = options.onPostPush
     this._onPostReject = options.onPostReject
     this._riskGates = options.riskGates
+    this._onResearchCapture = options.onResearchCapture
 
     // Wire internals
     this._getState = async (): Promise<GitState> => {
@@ -468,15 +481,38 @@ export class UnifiedTradingAccount {
     // nothing to the broker and leaves the pending commit fully intact.
     // This is the single choke point beneath every approval surface
     // (/wallet/push after its pendingHash guard, one-shot after commit).
+    let gate: { report: RiskGateStatus; ctx?: ResearchCaptureContext } | undefined
     if (this._riskGates) {
-      const report = await this._evaluateRiskGates('push')
-      if (report.mode === 'enforce' && report.result === 'BLOCK') {
-        throw new RiskGateBlockedError(report)
+      gate = await this._evaluateRiskGates('push')
+      if (gate.report.mode === 'enforce' && gate.report.result === 'BLOCK') {
+        // Track D brake capture — durably appended before the 409 surfaces,
+        // but a recorder failure can never change the verdict or the throw.
+        if (gate.ctx) await this._emitResearchCapture({ phase: 'blocked', ctx: gate.ctx, report: gate.report })
+        throw new RiskGateBlockedError(gate.report)
       }
     }
     const result = await this.git.push()
+    if (gate?.ctx) {
+      // Track D decision capture — awaited so the sample is durable before
+      // the HTTP response returns (samples are perishable), swallowed so the
+      // trading path never depends on research.
+      const commit = this.git.show(result.hash)
+      await this._emitResearchCapture({
+        phase: 'executed',
+        ctx: gate.ctx,
+        report: gate.report,
+        commit: { hash: result.hash, results: commit?.results ?? [] },
+      })
+    }
     Promise.resolve(this._onPostPush?.(this.id)).catch(() => {})
     return result
+  }
+
+  /** Iron-rule isolation: awaited for ordering, every failure swallowed. */
+  private async _emitResearchCapture(evt: ResearchCaptureEvent): Promise<void> {
+    await Promise.resolve()
+      .then(() => this._onResearchCapture?.(evt))
+      .catch(() => { /* the evidence pipeline must never affect the trading pipeline */ })
   }
 
   // ==================== Risk gates ====================
@@ -497,9 +533,9 @@ export class UnifiedTradingAccount {
     if (cached && cached.hash === status.pendingHash && nowMs - cached.at < UnifiedTradingAccount.RISK_GATE_PREVIEW_TTL_MS) {
       return cached.report
     }
-    const report = await this._evaluateRiskGates('preview')
+    const { report, ctx } = await this._evaluateRiskGates('preview')
     if (report.mode === 'off') return undefined
-    this._riskGatePreviewCache = { hash: status.pendingHash, at: nowMs, report }
+    this._riskGatePreviewCache = { hash: status.pendingHash, at: nowMs, report, ...(ctx !== undefined ? { ctx } : {}) }
     return report
   }
 
@@ -549,10 +585,10 @@ export class UnifiedTradingAccount {
     return this._callBroker(() => this.broker.getOrders(pendingIds))
   }
 
-  private async _evaluateRiskGates(trigger: 'push' | 'preview'): Promise<RiskGateStatus> {
+  private async _evaluateRiskGates(trigger: 'push' | 'preview'): Promise<{ report: RiskGateStatus; ctx?: ResearchCaptureContext }> {
     const rg = this._riskGates!
     const status = this.git.status()
-    const report = await evaluateRiskGates({
+    const detail = await evaluateRiskGatesDetailed({
       accountId: this.id,
       presetId: rg.presetId,
       operations: status.staged,
@@ -569,6 +605,7 @@ export class UnifiedTradingAccount {
       now: rg.now,
       getRegimeReading: rg.getRegimeReading,
     })
+    const report = detail.report
     // Await the (possibly async) audit sink so the record is durably
     // appended before broker execution — but swallow every failure, sync or
     // async: reporting must never affect the verdict.
@@ -579,11 +616,42 @@ export class UnifiedTradingAccount {
         enforced: trigger === 'push' && report.mode === 'enforce' && report.result === 'BLOCK',
       }))
       .catch(() => { /* reporting must never affect the verdict */ })
-    return report
+    // Track D capture context — assembled from what the evaluation already
+    // holds (zero re-fetching). Absent when nothing is pending: there is no
+    // decision to record without a pending commit.
+    const ctx: ResearchCaptureContext | undefined =
+      status.pendingHash && status.pendingMessage
+        ? {
+            accountId: this.id,
+            presetId: rg.presetId,
+            pendingHash: status.pendingHash,
+            message: status.pendingMessage,
+            operations: status.staged,
+            evaluatedAt: report.evaluatedAt,
+            ...(detail.intents !== undefined ? { intents: detail.intents } : {}),
+            ...(detail.snapshot !== undefined ? { positions: detail.snapshot.positions, restingOrders: detail.snapshot.restingOrders } : {}),
+            ...(detail.quotes !== undefined ? { quotes: detail.quotes } : {}),
+          }
+        : undefined
+    return { report, ...(ctx !== undefined ? { ctx } : {}) }
   }
 
   async reject(reason?: string): Promise<RejectResult> {
+    // Track D 'rejected' capture — read the pending identity and the last
+    // verdict SHOWN (preview cache, any age: it is what the human saw)
+    // BEFORE git.reject clears the pending state.
+    const pendingHash = this._onResearchCapture ? this.git.status().pendingHash : null
+    const cached = this._riskGatePreviewCache
     const result = await this.git.reject(reason)
+    if (pendingHash && cached && cached.hash === pendingHash && cached.ctx) {
+      await this._emitResearchCapture({
+        phase: 'rejected',
+        ctx: cached.ctx,
+        report: cached.report,
+        reportAgeMs: Date.now() - cached.at,
+        ...(reason !== undefined ? { reason } : {}),
+      })
+    }
     Promise.resolve(this._onPostReject?.(this.id)).catch(() => {})
     return result
   }

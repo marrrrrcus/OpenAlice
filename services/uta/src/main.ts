@@ -34,6 +34,16 @@ import {
   ALL_STRATEGIES,
 } from './domain/research/shadow/index.js'
 import {
+  seedResearchDecisionsConfig,
+  createResearchDecisionsConfigLoader,
+  createDecisionRecorder,
+  startDecisionsTicker,
+  fetchBinanceUsdmFundingHistory,
+} from './domain/research/decisions/index.js'
+import { peekRegimeReading } from './domain/trading/risk-gates/index.js'
+import { CcxtBroker } from './domain/trading/brokers/ccxt/CcxtBroker.js'
+import { BrokerError } from './domain/trading/brokers/types.js'
+import {
   getSDKExecutor,
   buildRouteMap,
   SDKCurrencyClient,
@@ -66,6 +76,27 @@ async function main(): Promise<void> {
   // Seed data/config/risk-gates.json with observe-mode defaults if absent —
   // the calibration surface must be discoverable. Never overwrites.
   await seedRiskGatesConfig()
+
+  // ==================== Track D decision recorder ====================
+  // docs/human-decision-ledger-v0.md — captures every real push / block /
+  // shown-verdict reject into the decision + brake ledgers. Wired BEFORE
+  // account init so the very first push is captured. Regime context comes
+  // from a cache-only peek (capture path does zero network — iron rule 1);
+  // the peek's source config resolves once at startup (startup = reload
+  // path, same model as the shadows).
+  await seedResearchDecisionsConfig()
+  const researchDecisionsLoader = createResearchDecisionsConfigLoader()
+  let peekCfg: Parameters<typeof peekRegimeReading>[0] | undefined
+  try {
+    const rgRes = await createRiskGatesConfigLoader()()
+    if (rgRes.status === 'ok') peekCfg = rgRes.forAccount('__defaults__', '').regimeVeto
+  } catch { /* no peek config — recorder degrades to UNKNOWN live context */ }
+  const decisionRecorder = createDecisionRecorder({
+    loadConfig: researchDecisionsLoader,
+    ...(peekCfg !== undefined ? { peekRegime: () => peekRegimeReading(peekCfg!) } : {}),
+  })
+  utaManager.setResearchSink(async (evt) => { await decisionRecorder.capture(evt) })
+  console.log('[uta] research decision recorder wired (push/block/reject capture; evidence only — never a signal)')
 
   // ==================== Account init (with ephemeral purge) ====================
 
@@ -161,6 +192,53 @@ async function main(): Promise<void> {
     console.warn('[uta] research shadow not started:', err instanceof Error ? err.message : err)
   }
 
+  // ==================== Track D decisions ticker ====================
+  // Hourly horizon marks + derived funding/regime backfills for the
+  // decision & brake ledgers. Marks fetch venue-correct candles through
+  // each account's own broker (read-only public data); no backfill cap —
+  // marks are point-in-time derivations, a long outage backfills fully.
+  let decisionsTicker: { stop(): void } | undefined
+  try {
+    decisionsTicker = startDecisionsTicker({
+      loadConfig: researchDecisionsLoader,
+      fetchDailyOhlcv: async (accountId, nativeKey, sinceMs, limitDays) => {
+        const broker = utaManager.resolve().find(u => u.id === accountId)?.broker
+        if (!broker || typeof broker.fetchDailyOhlcv !== 'function') return undefined
+        try {
+          return await broker.fetchDailyOhlcv(nativeKey, { sinceMs, limit: limitDays })
+        } catch (err) {
+          if (err instanceof BrokerError && err.code === 'UNSUPPORTED') return undefined
+          throw err // transient — the marker retries next tick
+        }
+      },
+      venueOf: (accountId) => {
+        const broker = utaManager.resolve().find(u => u.id === accountId)?.broker
+        return broker instanceof CcxtBroker ? broker.venueId : undefined
+      },
+      fetchFundingHistory: (symbol, startMs, endMs) => fetchBinanceUsdmFundingHistory(symbol, startMs, endMs),
+      loadRegimeZones: async () => {
+        const zones = new Map<string, { zone: 'BULL' | 'BEAR' | 'GRAY' | 'UNKNOWN'; reason?: string }>()
+        try {
+          const events = await eventLog.read({ type: 'trading.regime.zone' })
+          for (const e of events) {
+            const p = e.payload as { dateUtc?: string; zone?: string; error?: string }
+            if (typeof p?.dateUtc !== 'string') continue
+            // UNKNOWN events are kept — a recorded UNKNOWN reading is a
+            // different fact from "no event that day". A later good reading
+            // for the same day overwrites (log order = chronological).
+            if (p.zone === 'BULL' || p.zone === 'BEAR' || p.zone === 'GRAY' || p.zone === 'UNKNOWN') {
+              zones.set(p.dateUtc, { zone: p.zone, ...(p.error !== undefined ? { reason: p.error } : {}) })
+            }
+          }
+        } catch { /* no events → nothing to backfill this tick */ }
+        return zones
+      },
+    })
+    console.log('[uta] research decisions ticker started (horizon marks + derived context backfills)')
+  } catch (err) {
+    console.warn('[uta] research decisions ticker not started:', err instanceof Error ? err.message : err)
+  }
+
   // ==================== Catalog refresh ====================
   // Brokers that cache catalog (Alpaca / CCXT / Mock) need periodic refresh.
   // No-op for brokers that query server-side. Lifted from src/main.ts:460-470.
@@ -218,6 +296,7 @@ async function main(): Promise<void> {
     clearInterval(catalogRefreshTimer)
     regimeShadow?.stop()
     researchShadow?.stop()
+    decisionsTicker?.stop()
     snapshotScheduler.stop()
     server.close()
     await utaManager.closeAll().catch(() => { /* swallow during shutdown */ })

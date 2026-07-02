@@ -16,6 +16,7 @@ import {
   type IBroker,
   type AccountCapabilities,
   type AccountInfo,
+  type DailyCandle,
   type Position,
   type PlaceOrderResult,
   type OpenOrder,
@@ -852,6 +853,38 @@ export class CcxtBroker implements IBroker<CcxtBrokerMeta> {
         if (converted) out.push(converted)
       }
       return out
+    } catch (err) {
+      throw BrokerError.from(err)
+    }
+  }
+
+  /** ccxt exchange id (e.g. 'binanceusdm') — venue identity for research
+   *  annotations (Track D). */
+  get venueId(): string | undefined {
+    return this.exchange?.id
+  }
+
+  /**
+   * Venue-correct daily candles by unified symbol (= our nativeKey) —
+   * Track D horizon marks, research only. Throws BrokerError UNSUPPORTED
+   * when the exchange has no fetchOHLCV (structural, not transient).
+   */
+  async fetchDailyOhlcv(nativeKey: string, opts: { sinceMs?: number; limit?: number } = {}): Promise<DailyCandle[]> {
+    this.ensureInit()
+    if (!this.exchange.has['fetchOHLCV']) {
+      throw new BrokerError('UNSUPPORTED', `${this.exchange.id} does not support fetchOHLCV`)
+    }
+    try {
+      const raw = await this.exchange.fetchOHLCV(nativeKey, '1d', opts.sinceMs, opts.limit) as Array<[number, number, number, number, number, number]>
+      return raw.map(([ts, open, high, low, close]) => ({
+        dateUtc: new Date(ts).toISOString().slice(0, 10),
+        // ccxt candles are floats upstream — String(x) marks the
+        // precision boundary (research marks, not money movement).
+        open: String(open),
+        high: String(high),
+        low: String(low),
+        close: String(close),
+      }))
     } catch (err) {
       throw BrokerError.from(err)
     }

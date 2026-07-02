@@ -13,7 +13,7 @@ import './contract-ext.js'
 
 // ==================== Errors ====================
 
-export type BrokerErrorCode = 'CONFIG' | 'AUTH' | 'NETWORK' | 'EXCHANGE' | 'MARKET_CLOSED' | 'UNKNOWN'
+export type BrokerErrorCode = 'CONFIG' | 'AUTH' | 'NETWORK' | 'EXCHANGE' | 'MARKET_CLOSED' | 'UNSUPPORTED' | 'UNKNOWN'
 
 /**
  * Structured broker error.
@@ -190,6 +190,19 @@ export interface FundingRate {
   timestamp: Date
 }
 
+/**
+ * One completed daily candle (Track D research marks). Prices are strings
+ * at the boundary — sources with float candles convert via String(x), the
+ * precision-loss point stays explicit.
+ */
+export interface DailyCandle {
+  dateUtc: string
+  open: string
+  high: string
+  low: string
+  close: string
+}
+
 /** [price, amount] */
 export type OrderBookLevel = [price: number, amount: number]
 
@@ -298,6 +311,12 @@ export interface IBroker<TMeta = unknown> {
    * or the call fails.
    */
   getOpenOrders?(): Promise<OpenOrder[]>
+  /**
+   * Optional: venue-correct completed daily candles by broker-native
+   * instrument key (Track D horizon marks — research only). Implementations
+   * may include the in-progress candle; callers filter to completed days.
+   */
+  fetchDailyOhlcv?(nativeKey: string, opts?: { sinceMs?: number; limit?: number }): Promise<DailyCandle[]>
   getQuote(contract: Contract): Promise<Quote>
   /** Optional: supported by CCXT derivative/crypto brokers. */
   getFundingRate?(contract: Contract): Promise<FundingRate>
