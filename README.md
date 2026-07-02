@@ -33,6 +33,7 @@ Alice runs on your own machine, because trading involves private keys and real m
 - **Unified Trading Account (UTA)** — multiple brokers (CCXT, Alpaca, Interactive Brokers) combine into unified workspaces. AI interacts with UTAs, never with brokers directly
 - **Trading-as-Git** — stage orders, commit with a message, push to execute. Full history reviewable with commit hashes. Approvals are bound to the pending commit's hash (fail-closed): if the pending changed since you were shown it, the push/reject is blocked, not executed
 - **Guard pipeline** — pre-execution safety checks (max position size, cooldown, symbol whitelist) per account
+- **Risk-gate pipeline** — when a pending commit is pushed, the *whole commit* is evaluated atomically before anything reaches the broker: max order notional, projected gross exposure, daily-loss telemetry (observe-only in v0 until transfer-adjusted equity is available), rate-limit + duplicate-intent detection, and a backtest-validated **regime veto** (opening/increasing a BTC short in a confirmed up-regime → BLOCK; for that gated short veto, a regime data outage reads as UNKNOWN and blocks under enforce — *UNKNOWN is not SAFE*). Binary PASS/BLOCK, per-gate observe/enforce modes, fail-closed on missing data or invalid config; verdicts render in the approval panels before you tap Approve. A full pass reads "no hard-limit block detected" — never "safe". Design contract: [docs/risk-gate-pipeline-v0.md](docs/risk-gate-pipeline-v0.md) + [docs/regime-veto-onboarding-v0.md](docs/regime-veto-onboarding-v0.md)
 - **Account snapshots** — periodic and event-driven state capture with equity curve visualization
 
 ### Research & Analysis
@@ -41,6 +42,8 @@ Alice runs on your own machine, because trading involves private keys and real m
 - **Market data** — equity, crypto, commodity, currency, and macro data via TypeScript-native OpenBB engine. Unified cross-asset symbol search and technical indicator calculator
 - **Fundamental research** — company profiles, financial statements, ratios, analyst estimates, earnings calendar, insider trading, and market movers. Currently deepest for equities, expanding to other asset classes
 - **News** — background RSS collection with archive search
+- **Backtest verdict archive** — hypothesis studies under [docs/backtests/](docs/backtests/) are pre-registered (rules and passing bars pinned *before* the run), executed outside the runtime, and archived whatever the outcome. REJECT is a normal, recorded result — of the studies run so far, exactly one rule survived (the regime veto's short side) and only that rule was wired into the runtime
+- **Strategy shadow track** — forward paper-evidence scoring for candidate entry strategies ([docs/strategy-shadow-track-v0.md](docs/strategy-shadow-track-v0.md)): each registered strategy's daily stance is marked to market with pinned costs into an append-only per-strategy ledger — a forward, out-of-sample record that is far harder to fake than a backtest. Research evidence only: it never places orders, no trading path reads it, and its events carry a schema-level `shadowOnly: true`. The promotion path for any entry idea is fixed: pre-registered backtest → forward shadow survival → human-written verdict
 
 ### Automation
 
@@ -112,9 +115,10 @@ graph TB
 
   subgraph UTA["UTA service — broker carrier"]
     TG2[Trading Git]
-    GD[Guards]
+    GD[Guards + Risk Gates]
     BK[Brokers]
     FX[FX + Snapshots]
+    RSH[Research Shadow]
   end
 
   subgraph Sched["Scheduling — what fires"]
@@ -183,10 +187,13 @@ exposed to AI through tool registrations and never touches broker code.
 
 **UTA service (carrier)** — Owns the IBroker implementations (CCXT,
 Alpaca, Interactive Brokers, Longbridge, MockBroker), the
-Trading-as-Git state machine, guards, FxService, the snapshot scheduler,
-and the broker catalog refresh loop. Binds `127.0.0.1` only — only the
-co-located Alice process talks to it. v1 ships co-located; subsequent
-versions support running UTA on a separate host or device entirely.
+Trading-as-Git state machine, guards, the risk-gate pipeline (atomic
+pre-push hard limits + regime veto), FxService, the snapshot scheduler,
+the research shadow (strategy paper-evidence track — research-only, no
+trading path reads it), and the broker catalog refresh loop. Binds
+`127.0.0.1` only — only the co-located Alice process talks to it. v1
+ships co-located; subsequent versions support running UTA on a separate
+host or device entirely.
 
 **Guardian** — The supervisor that brings the two processes up in
 order, gates Alice's boot on UTA's `/__uta/health`, and respawns UTA
@@ -219,6 +226,10 @@ agent runtime that drives trading decisions.
 **Trading-as-Git** — The workflow inside each UTA. Stage orders, commit with a message, then push to execute. Push runs guards, dispatches to the broker, snapshots account state, and records a commit with an 8-char hash. Full history is reviewable like `git log` / `git show`. Push and reject are human-only and hash-bound: the approver (Telegram button or Web UI panel) must echo back the `pendingHash` they were shown, and the backend rejects with 409 — without executing — if it no longer matches the current pending commit. The only failure mode is blocking a legitimate approval (refresh and re-approve), never acting on a commit you didn't review.
 
 **Guard** — A pre-execution safety check that runs inside a UTA before orders reach the broker. Guards enforce limits (max position size, cooldown between trades, symbol whitelist) and are configured per-account. Think of it as ESLint for trading — automated rules that catch problems before they go live.
+
+**Risk gates** — A second, harder layer above per-order guards. When a pending commit is pushed (after human approval and the `pendingHash` check), the *entire commit* is evaluated atomically before broker dispatch: G1 max order notional, G2 projected gross exposure (positions + resting orders + the push itself), G3 transfer-adjusted daily loss (observe-only in v0 — it annotates `WOULD_BLOCK` and is not promoted to enforce until a broker exposes transfer-adjusted equity), G4 rate limit + duplicate intent, and REGIME_VETO — the one backtest-validated rule wired so far (`SHORT in BULL → BLOCK`; on gated instruments a regime UNKNOWN blocks the short under enforce, never read as safe). Any BLOCK under enforce sends *nothing* to the broker and leaves the pending commit intact. Each gate runs `off` / `observe` (annotate-only, builds an audit trail) / `enforce` per account; thresholds live in `data/config/risk-gates.json`, read per evaluation — edit and it applies to the next push, no restart. New accounts default to observe; the mock simulator preset enforces from day one. The wording is part of the contract: a pass renders "no hard-limit block detected", never "safe" — `ALLOW is not endorsement` (see [docs/alice-trading-constitution.md](docs/alice-trading-constitution.md)).
+
+**Strategy shadow track** — Research evidence infrastructure, not a signal source ([docs/strategy-shadow-track-v0.md](docs/strategy-shadow-track-v0.md)). Registered candidate strategies get their stance recomputed once per UTC day from completed candles and marked to market close-to-close with pinned costs (10 bps per executed leg — the backtest family's constants) into an append-only JSONL ledger per strategy. The ledger is the sole authority (events are best-effort mirrors with a schema-level `shadowOnly: true`); unknown days freeze equity and are excluded from evaluation rather than papered over; backfill after downtime is capped and flagged. It never places orders and no trading path reads its output. Its purpose is the promotion bar: any entry idea must survive a pre-registered backtest *and* a forward shadow period before `directionSource` eligibility is even discussable — because forward records are harder to fake than in-sample backtests.
 
 **Heartbeat** — A scheduling pattern: a recurring timer with an active-hours filter and a dedup window for the message body. The pattern is general; today its execution wiring routes through the pre-Workspace path (AgentCenter → `notify_user` → NotificationsStore → connectors), so a heartbeat tick currently delivers as a message in your last-used channel. As Workspace-resident autonomous work matures, the same scheduling primitive will be wired into workspace executions too.
 
@@ -511,6 +522,8 @@ All config lives in `data/config/` as JSON files with Zod validation. Missing fi
 | `agent.json` | Max agent steps, evolution mode toggle, Claude Code tool permissions |
 | `ai-provider.json` | Active AI provider (`agent-sdk` or `vercel-ai-sdk`), login method, switchable at runtime |
 | `accounts.json` | Trading accounts with `type`, `enabled`, `guards`, and `brokerConfig` (broker-specific settings) |
+| `risk-gates.json` | Risk-gate pipeline: per-gate `off`/`observe`/`enforce` modes, notional/exposure/daily-loss/rate limits, regime-veto instrument list. Seeded with observe defaults on first run; read per evaluation (no restart) |
+| `research-shadow.json` | Strategy shadow track: cost model (bps/leg), backfill cap, stale grace, per-strategy on/off. Research-only — never touches trading |
 | `connectors.json` | Web/MCP server ports, MCP Ask enable |
 | `telegram.json` | Telegram bot credentials + enable |
 | `web-subchannels.json` | Web UI sub-channel definitions with per-channel AI provider overrides |
