@@ -1,8 +1,9 @@
 import { useState } from 'react'
 import { Field, inputClass } from '../form'
 import { Dialog } from './Dialog'
+import { RiskGateVerdicts } from '../RiskGateVerdicts'
 import { tradingApi, OrderEntryError } from '../../api/trading'
-import type { WalletPushResult, PlaceOrderRequest, ClosePositionRequest } from '../../api/types'
+import type { WalletPushResult, PlaceOrderRequest, ClosePositionRequest, RiskGateStatus } from '../../api/types'
 
 // ==================== Modes ====================
 
@@ -34,7 +35,7 @@ interface Props {
  */
 export function OrderEntryDialog({ utaId, mode, onClose, onPushComplete }: Props) {
   const [submitting, setSubmitting] = useState(false)
-  const [error, setError] = useState<{ message: string; phase?: string } | null>(null)
+  const [error, setError] = useState<OrderEntryErrorState | null>(null)
   const [result, setResult] = useState<WalletPushResult | null>(null)
 
   // Whether the result panel has shown — once it has, parent should
@@ -85,11 +86,19 @@ function Header({ mode, onClose }: { mode: OrderEntryMode; onClose: () => void }
 
 // ==================== Place form ====================
 
+/** Failure surface for the one-shot pipeline. `riskGates` is the full
+ *  report from a push-phase BLOCK (409) — passed through untouched. */
+interface OrderEntryErrorState {
+  message: string
+  phase?: string
+  riskGates?: RiskGateStatus
+}
+
 interface SharedFormProps {
   utaId: string
   submitting: boolean
-  error: { message: string; phase?: string } | null
-  setError: (e: { message: string; phase?: string } | null) => void
+  error: OrderEntryErrorState | null
+  setError: (e: OrderEntryErrorState | null) => void
   setSubmitting: (b: boolean) => void
   setResult: (r: WalletPushResult) => void
   onPushComplete?: (result: WalletPushResult) => void
@@ -132,7 +141,7 @@ function PlaceForm({ initialAliceId, ...p }: SharedFormProps & { initialAliceId?
       p.onPushComplete?.(result)
     } catch (err) {
       if (err instanceof OrderEntryError) {
-        p.setError({ message: err.response.error, phase: err.response.phase })
+        p.setError({ message: err.response.error, phase: err.response.phase, riskGates: err.response.riskGates })
       } else {
         p.setError({ message: err instanceof Error ? err.message : String(err) })
       }
@@ -224,7 +233,7 @@ function PlaceForm({ initialAliceId, ...p }: SharedFormProps & { initialAliceId?
         </Field>
       </div>
 
-      {p.error && <ErrorPanel message={p.error.message} phase={p.error.phase} />}
+      {p.error && <ErrorPanel error={p.error} />}
 
       <div className="pt-2">
         <button
@@ -262,7 +271,7 @@ function CloseForm({ aliceId, initialQty, symbol, ...p }: SharedFormProps & { al
       p.onPushComplete?.(result)
     } catch (err) {
       if (err instanceof OrderEntryError) {
-        p.setError({ message: err.response.error, phase: err.response.phase })
+        p.setError({ message: err.response.error, phase: err.response.phase, riskGates: err.response.riskGates })
       } else {
         p.setError({ message: err instanceof Error ? err.message : String(err) })
       }
@@ -299,7 +308,7 @@ function CloseForm({ aliceId, initialQty, symbol, ...p }: SharedFormProps & { al
         />
       </Field>
 
-      {p.error && <ErrorPanel message={p.error.message} phase={p.error.phase} />}
+      {p.error && <ErrorPanel error={p.error} />}
 
       <div className="pt-2">
         <button
@@ -398,16 +407,30 @@ function OpTable({ title, rows, kind }: { title: string; rows: OpRow[]; kind: 's
 
 // ==================== Error display ====================
 
-function ErrorPanel({ message, phase }: { message: string; phase?: string }) {
+function ErrorPanel({ error }: { error: OrderEntryErrorState }) {
+  const { message, phase, riskGates } = error
+  // "Commit stays pending" only holds for a push-phase risk-gate BLOCK —
+  // stage/commit failures roll the staging area back instead.
+  const pendingStays = phase === 'push' && !!riskGates
   return (
-    <div className="rounded-md border border-red/30 bg-red/5 px-3 py-2.5">
-      <div className="flex items-center gap-2 mb-1">
-        <span className="w-2 h-2 rounded-full bg-red shrink-0" />
-        <span className="text-[12px] font-medium text-red">
-          {phase ? `Failed at ${phase} step` : 'Failed'}
-        </span>
+    <div className="rounded-md border border-red/30 bg-red/5 px-3 py-2.5 space-y-2">
+      <div>
+        <div className="flex items-center gap-2 mb-1">
+          <span className="w-2 h-2 rounded-full bg-red shrink-0" />
+          <span className="text-[12px] font-medium text-red">
+            {phase ? `Failed at ${phase} step` : 'Failed'}
+          </span>
+        </div>
+        <p className="text-[12px] text-text whitespace-pre-wrap">{message}</p>
       </div>
-      <p className="text-[12px] text-text whitespace-pre-wrap">{message}</p>
+      {riskGates && <RiskGateVerdicts riskGates={riskGates} />}
+      {pendingStays && (
+        <p className="text-[11px] text-text-muted leading-relaxed">
+          Nothing was executed — the commit is still pending. Review it in the{' '}
+          <strong className="text-text">Trading as Git</strong> panel: reject it, or approve it
+          there after adjusting the risk-gates config.
+        </p>
+      )}
     </div>
   )
 }

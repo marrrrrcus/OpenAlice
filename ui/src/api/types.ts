@@ -540,6 +540,8 @@ export interface OrderErrorResponse {
   error: string
   /** Which step blew up — useful for surfacing where the failure happened. */
   phase?: 'validate' | 'stage' | 'commit' | 'push'
+  /** Full risk-gate report when a push-phase BLOCK caused the 409. The pending commit stays intact on the backend. */
+  riskGates?: RiskGateStatus
 }
 
 // ==================== Snapshots ====================

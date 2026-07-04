@@ -274,7 +274,7 @@ async function postOrder(url: string, body: unknown): Promise<WalletPushResult> 
   })
   if (!res.ok) {
     const json = (await res.json().catch(() => ({}))) as OrderErrorResponse
-    throw new OrderEntryError(res.status, { error: json.error ?? `Request failed (${res.status})`, phase: json.phase })
+    throw new OrderEntryError(res.status, { error: json.error ?? `Request failed (${res.status})`, phase: json.phase, riskGates: json.riskGates })
   }
   return res.json()
 }
