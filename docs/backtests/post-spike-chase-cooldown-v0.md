@@ -11,6 +11,9 @@ intent**:
 > **Status:** REGISTERED — NOT RUN. All thresholds are red-pen proposals
 > until locked; the run happens outside both repos on explicit
 > authorization only.
+> 2026-07-03 amendment (inside the pre-registration window, before any
+> run): the macro-event sensitivity DIAGNOSTIC below was added —
+> diagnostic-only by ruling, never a gate, never a rescue.
 
 ## Honest framing — this veto may well FAIL
 
@@ -140,6 +143,45 @@ h ∈ {1D, 5D, 20D}
   returns — the continuation profits the cooldown costs. Given the
   momentum prior, this number is expected to be the story; it must be
   reported with the same prominence as the left tail.
+
+## Macro-event sensitivity (diagnostic — never a gate, never a rescue)
+
+Macro releases move price, and this study's features cannot see them —
+their effect is IN the data but NOT in the labels. Identical machinery
+to [funding-crowding-short-veto-v0.md](funding-crowding-short-veto-v0.md)'s
+diagnostic, restated pinned:
+
+- **Event set (frozen before the run):** US CPI (**BLS CPI release
+  schedule**), US Employment Situation / NFP (**BLS Employment Situation
+  release schedule**), FOMC **scheduled policy statement / rate decision
+  release timestamps only** (no minutes, speeches, dot plots, press
+  conferences; **unscheduled emergency decisions excluded in v0**;
+  source: the **Federal Reserve FOMC calendar**). Calendar snapshot
+  saved in artifacts.
+- **Timezone rule:** release times convert to **UTC timestamps first**;
+  day labels use the **UTC date** (`event_utc_date` = the UTC day
+  containing the release instant). No ET-vs-UTC choice exists.
+- **Exclusion set:** `event_utc_date` and `event_utc_date + 1` — the day
+  before is NOT excluded (post-event risk diagnostic, not pre-event
+  avoidance). The only label definition in this spec.
+
+**Reported (all diagnostic, none gated):**
+
+1. Share of vetoed and reference DAYS falling inside the exclusion set,
+   per side.
+2. **Trigger attribution (A2-specific):** the share of spike triggers
+   whose `close_T` UTC day falls inside the exclusion set — the spike
+   itself may be macro-born, and this directly illuminates the
+   otherwise-unmeasured mechanism layer.
+3. Whether each side's tail separation direction flips when recomputed
+   with the exclusion set removed — recorded in the verdict's
+   interpretation, never a change to PASS/FAIL.
+4. **Post-exclusion sample count** — below this spec's tiers the
+   diagnostic is **underpowered** and the direction question is left
+   unanswered.
+
+*This diagnostic can weaken a pass's interpretation or explain a fail's
+mechanism; it can never rescue a fail or veto a pass.*
 
 ## Language discipline
 

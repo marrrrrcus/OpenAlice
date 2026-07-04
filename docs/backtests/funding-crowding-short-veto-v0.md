@@ -16,6 +16,9 @@ validated predecessor), it asks a permission question about a
 > and only on explicit authorization. A validated verdict makes an
 > onboarding spec *eligible* (regime-veto-onboarding precedent) — it wires
 > nothing by itself.
+> 2026-07-03 amendment (inside the pre-registration window, before any
+> run): the macro-event sensitivity DIAGNOSTIC below was added —
+> diagnostic-only by ruling, never a gate, never a rescue.
 
 ## Motivation — and the discovery-degrees-of-freedom disclosure
 
@@ -171,6 +174,50 @@ re-blocks blocked trades is a renamed defense, not a new one.
   must cut CVaR5 materially more than it cuts the P95 opportunity
   (`right metric` per trade-proposal-principles: risk-adjusted, not
   raw filtering).
+
+## Macro-event sensitivity (diagnostic — never a gate, never a rescue)
+
+Macro releases move price, and this study's features cannot see them —
+their effect is IN the data but NOT in the labels. This diagnostic makes
+that mechanism visible without opening a post-hoc degree of freedom.
+
+**Pinned event set (frozen before the run — no additions or removals
+after):**
+
+- US CPI releases — source: the **BLS CPI release schedule**.
+- US Employment Situation (NFP) releases — source: the **BLS Employment
+  Situation release schedule**.
+- FOMC — **scheduled policy statement / rate decision release timestamps
+  only**: no minutes, no speeches, no dot plots, no press conferences;
+  **unscheduled emergency decisions are excluded in v0** (a discretionary
+  label is a leak). Source: the **Federal Reserve FOMC calendar**.
+- The calendar snapshot used is saved in artifacts.
+
+**Pinned timezone rule:** every official release time (typically ET) is
+converted to a **UTC timestamp first**; day-level labels use the **UTC
+date** — `event_utc_date` is the UTC day containing the release instant
+(CPI at 08:30 ET labels its UTC calendar day). The implementation has no
+ET-vs-UTC choice to make.
+
+**Pinned exclusion set:** `event_utc_date` and `event_utc_date + 1`.
+The day BEFORE is not excluded — this is a post-event risk diagnostic,
+not a pre-event avoidance test. This is the only label definition in
+this spec.
+
+**Reported (all diagnostic, none gated):**
+
+1. Share of vetoed and reference samples falling inside the exclusion
+   set.
+2. Whether the tail separation's direction flips when recomputed with
+   the exclusion set removed — a flip means the effect may be a
+   macro-event artifact, recorded in the verdict's interpretation, never
+   a change to PASS/FAIL.
+3. **Post-exclusion sample count** — below this spec's sample tiers the
+   diagnostic is reported as **underpowered** and the direction question
+   is left unanswered (a flip on a starved sample must not be read).
+
+*This diagnostic can weaken a pass's interpretation or explain a fail's
+mechanism; it can never rescue a fail or veto a pass.*
 
 ## Language discipline
 

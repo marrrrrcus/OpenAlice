@@ -226,6 +226,11 @@ neither), never a recommendation.
 
 ## Deliberately OUT of v0
 
+- **Macro-event labeling** (the A1/A2 diagnostic): information value for
+  a multi-year structural-income bar is minimal, and event-day
+  liquidation risk is already covered by the daily margin simulation. If
+  event-day liquidation risk ever becomes the question, that is a
+  separately pre-registered arm.
 - ETH / alt pairs; cross-exchange carry; basis trades via dated futures.
 - Rebalancing, collateral top-ups, dynamic sizing, compounding policy.
 - Maker execution modeling; sub-daily entry timing.
