@@ -58,7 +58,7 @@ import { createMetricsListener } from './task/metrics/index.js'
 import { createAgentWorkListener } from './core/agent-work-listener.js'
 import { NewsCollectorStore, NewsCollector } from './domain/news/index.js'
 import { createNewsArchiveTools } from './tool/news.js'
-import { createResearchShadowTools } from './tool/research.js'
+import { createResearchShadowTools, createHumanDecisionReportTools } from './tool/research.js'
 
 // ==================== Persistence paths ====================
 
@@ -215,6 +215,12 @@ async function main() {
   // Strategy-shadow standings — research evidence only, never a signal
   // (docs/strategy-shadow-track-v0.md; ledgers written by the UTA process).
   toolCenter.register(createResearchShadowTools(), 'research')
+  // Track D quarterly report — reconciliation first, analysis second
+  // (docs/human-decision-ledger-v0.md D3; audits ledger completeness
+  // against trading-git history + verdict events before any reading).
+  toolCenter.register(createHumanDecisionReportTools({
+    readEvents: (type) => eventLog.read({ type }),
+  }), 'research')
 
   console.log(`tool-center: ${toolCenter.list().length} tools registered`)
 

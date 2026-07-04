@@ -247,6 +247,9 @@ export interface ResearchDecisionsConfig {
   /** mock-simulator pushes are simulator noise, not "real pushes" (spec);
    *  flip to true temporarily for deployment smoke tests. */
   captureMockAccounts: boolean
+  /** D3 reconciliation baseline (ISO). Absent → the report renders
+   *  "evidence incomplete" unconditionally (completeness undetermined). */
+  captureSince?: string
   marker: {
     enabled: boolean
     graceHours: number

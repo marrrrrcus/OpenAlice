@@ -17,6 +17,13 @@ const researchDecisionsFileSchema = z.object({
   // mock-simulator pushes are simulator noise, not "real pushes" (spec).
   // Flip true temporarily for deployment smoke tests, then back.
   captureMockAccounts: z.boolean().default(false),
+  // D3 reconciliation baseline: commits/events/rows BEFORE this instant
+  // are outside the completeness contract (pre-deployment history).
+  // ABSENT → the D3 report is pinned to render "evidence incomplete"
+  // regardless of data — an unset baseline means completeness is
+  // undetermined. Seeded with the seed time on new installs; existing
+  // deployments set it manually to their Track D restart time.
+  captureSince: z.string().optional(),
   marker: z.object({
     enabled: z.boolean().default(true),
     graceHours: z.number().positive().default(6),
@@ -75,7 +82,7 @@ export async function seedResearchDecisionsConfig(filePath: string = researchDec
   } catch { /* missing → seed */ }
   try {
     await mkdir(dirname(filePath), { recursive: true })
-    await writeFile(filePath, JSON.stringify(CODE_DEFAULTS, null, 2))
+    await writeFile(filePath, JSON.stringify({ ...CODE_DEFAULTS, captureSince: new Date().toISOString() }, null, 2))
   } catch (err) {
     console.warn('[research-decisions] failed to seed default config:', err instanceof Error ? err.message : err)
   }

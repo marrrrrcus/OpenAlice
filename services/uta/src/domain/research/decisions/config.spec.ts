@@ -43,4 +43,22 @@ describe('research-decisions config', () => {
     await seedResearchDecisionsConfig(path)
     expect(JSON.parse(await readFile(path, 'utf-8'))).toEqual({ enabled: false })
   })
+
+  it('captureSince: seeded on new installs; parsed when present; absent stays absent (D3 baseline)', async () => {
+    const path = join(dir, 'c.json')
+    await seedResearchDecisionsConfig(path)
+    const seeded = JSON.parse(await readFile(path, 'utf-8'))
+    expect(typeof seeded.captureSince).toBe('string')
+    expect(Number.isFinite(Date.parse(seeded.captureSince))).toBe(true)
+
+    await writeFile(path, JSON.stringify({ captureSince: '2026-07-02T21:37:49Z' }))
+    const withIt = await createResearchDecisionsConfigLoader(path)()
+    if (withIt.status !== 'ok') throw new Error('expected ok')
+    expect(withIt.config.captureSince).toBe('2026-07-02T21:37:49Z')
+
+    await writeFile(path, JSON.stringify({}))
+    const without = await createResearchDecisionsConfigLoader(path)()
+    if (without.status !== 'ok') throw new Error('expected ok')
+    expect(without.config.captureSince).toBeUndefined()
+  })
 })

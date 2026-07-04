@@ -195,6 +195,72 @@ accept ad-hoc condition parameters.
   "insufficient — accumulating" below tiers; **never** "your edge is X",
   never a recommendation, never a per-trade grade.
 
+## D3 — the report is reconciliation first, analysis second (pinned)
+
+Capture is emit-once (iron rule 1's cost): a lost sample is permanent and
+otherwise invisible. The report therefore audits its own evidence before
+it says anything about behavior.
+
+**Headline rule:** if ANY reconciliation check fails — or the baseline is
+unset — the report's first line is
+**`evidence incomplete — no behavioral conclusions allowed`**. Analysis
+sections still render, but under that banner.
+
+**Baseline (`captureSince`, pinned two-state):** an ISO instant in
+`research-decisions.json`; only items at/after it are judged.
+- `captureSince` ABSENT → **always evidence incomplete, even with zero
+  data** (an unset baseline means completeness is undetermined).
+- `captureSince` present and nothing ≥ it anywhere → **no data yet,
+  reconciliation OK** (an honest zero, not a failure).
+New installs seed it with the seed time; existing deployments set it
+manually to their Track D restart instant.
+
+**The five checks:**
+
+1. **Executed pushes ↔ decision parents.** Every **executed push
+   commit** (persisted `GitExportState.commits[]`, `timestamp ≥
+   captureSince`, non-mock accounts unless `captureMockAccounts`) must
+   have a decision parent matching `accountId:commitHash` —
+   **account-scoped keys**: an audit layer is deterministic and never
+   leans on hash collision odds. The universe excludes two commit kinds
+   that owe no parent: **clean rejects** (every result
+   `status === 'user-rejected'`) and **synthetic reconciles** (every
+   operation `action === 'reconcileBalance'`); a **broker-rejected push
+   stays in the universe** (the human pushed — the outcome is still a
+   decision). Every miss is listed. Git state is read via the SAME
+   candidate paths (primary + legacy) the runtime loads from — a
+   different resolution order would report phantom losses on legacy
+   accounts.
+2. **Brake-content verdicts ↔ brake parents.** Every push-trigger
+   `trading.risk_gate.verdict` event carrying brake content (a BLOCK
+   result or a `*_WOULD_BLOCK` code), filtered by the event ENVELOPE
+   `ts ≥ captureSince` (the payload has no standalone time field — no
+   implementation choice exists), must match a brake parent by
+   `pendingHash`: `enforced=true ↔ 'blocked'`, else `↔ 'overridden'`.
+   `'rejected'` parents have no event-side requirement (they arise from
+   the human's reject after a shown preview) and are listed
+   informationally.
+3. **`childCount` ↔ actual child rows**, both ledgers.
+4. **Marks coverage.** Every markable child × 4 horizons classified
+   `marked / unmarkable / not-yet-due / OVERDUE`; an OVERDUE cell (past
+   due incl. grace, no row at all) means the marker is unhealthy and
+   **counts as a reconciliation failure**.
+5. **Context coverage ratios.** Funding: share of live-`unavailable`
+   children with a derived bucket; regime: share of UNKNOWN-live
+   children with a derived context. Reported only — the ticker is
+   self-healing, so low coverage informs but does not fail (OVERDUE
+   marks are the health signal that fails).
+
+**Unreadable inputs are failures, never emptiness** (the ledger ruling,
+applied to every file the report reads — a commit.json that cannot be
+read reports as unreadable, not as "no commits").
+
+**Analysis (second, v0-minimal):** process metrics (parents,
+dispositions, override count, override-reason-missing count) and
+side×regime / side×funding cell fill counts against the tiers — below
+tier the report is code-bound to refuse condition-level statements
+(must-pin 2 unchanged).
+
 ## Data sources & storage
 
 - Sources already recorded: TradingGit commits, snapshots,
@@ -251,3 +317,11 @@ slow instrument by design: install the meter now, read it next year.
   with missing-as-process-failure; self-contained funding buckets;
   `contextSource: 'derived'|'live'` split; "low search freedom, not
   zero" wording. Spec ready to lock.
+- 2026-07-03 — locked (`b70364b`); D1+D2 implemented and deployed
+  (`f6077f24`).
+- 2026-07-04 — D3 amendment (Marcus's ruling): the quarterly report is
+  **reconciliation first, analysis second** — five completeness checks,
+  the evidence-incomplete headline rule, the `captureSince` two-state
+  baseline, envelope-`ts` filtering for check 2, and shared git-state
+  candidate paths with the runtime. Diagnostic of the instrument before
+  any reading of the human.
