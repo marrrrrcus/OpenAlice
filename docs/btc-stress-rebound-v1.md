@@ -29,6 +29,14 @@ through Alice stage -> commit -> Trading as Git verdict.
 - Intraday lows are diagnostic only and never trigger failure.
 - Missing or failed data is UNKNOWN: the monitor does not evaluate, does not
   change state, and retries on the next tick.
+- Completed daily candles must be calendar-contiguous UTC days. A missing,
+  duplicate, or malformed daily date is UNKNOWN: the monitor emits no Telegram
+  notification, does not write `lastEvaluatedDayUtc`, and retries when the next
+  tick has clean data.
+- The persisted monitor state file is not auto-reset on corruption. If
+  `statePath` contains unreadable JSON or malformed fields, the monitor emits no
+  Telegram notification and does not overwrite the file; fix the state file or
+  intentionally remove it before restarting first-run behavior.
 
 ## Pinned Parameters
 
@@ -104,6 +112,8 @@ qualify a strategy for promotion.
 - No strategy-shadow registration.
 - No volume, funding, or open-interest filters.
 - No automatic entries, exits, or sizing.
+- No authenticated trading surface in this monitor: no API keys, no signatures,
+  no order endpoints, no leverage or margin mutation calls.
 
 If this idea later needs paper-performance evidence, it must receive a new
 pre-registered spec and a new strategy id such as `stress-rebound-shadow-v0`.

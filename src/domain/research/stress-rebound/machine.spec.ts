@@ -73,13 +73,22 @@ describe('BTC Stress Rebound state machine', () => {
     expect(r.latest?.eventPeakClose).toBe('130')
   })
 
-  it('missing calendar days do not synthesize UNKNOWN transitions', () => {
+  it('fails closed when completed daily candles have a calendar gap', () => {
     const input = days([100, 100, 100, 100, 100, 100, 79])
     input[input.length - 1].dateUtc = '2026-02-15'
     const r = computeStressRebound(input, P)
-    expect(r.ok).toBe(true)
-    expect(r.transitions).toHaveLength(1)
-    expect(r.transitions[0].dateUtc).toBe('2026-02-15')
+    expect(r.ok).toBe(false)
+    expect(r.error).toContain('missing UTC daily candle')
+    expect(r.transitions).toHaveLength(0)
+  })
+
+  it('fails closed when completed daily candles have a duplicate date', () => {
+    const input = days([100, 100, 100, 100, 100, 100, 79])
+    input[input.length - 1].dateUtc = input[input.length - 2].dateUtc
+    const r = computeStressRebound(input, P)
+    expect(r.ok).toBe(false)
+    expect(r.error).toContain('duplicate UTC daily candle date')
+    expect(r.transitions).toHaveLength(0)
   })
 
   it('transitionKey includes event type, not only destination state', () => {

@@ -55,4 +55,19 @@ describe('market_state_report', () => {
     expect(report.status).toBe('unknown')
     expect(report.reason).toContain('binance unavailable')
   })
+
+  it('returns UNKNOWN when completed daily candles are not calendar-contiguous', async () => {
+    const brokenRows = rows([...Array(240).fill(80000), 58600, 61900]).filter((_, i) => i !== 120)
+
+    const report = await buildMarketStateReport({
+      config: config(),
+      now: () => new Date('2026-09-01T12:00:00Z'),
+      fetchKlines: async () => brokenRows,
+    })
+
+    expect(report.status).toBe('unknown')
+    expect(report.reason).toContain('missing UTC daily candle')
+    expect(report.state).toBeUndefined()
+    expect(report.nextTrigger).toBeUndefined()
+  })
 })

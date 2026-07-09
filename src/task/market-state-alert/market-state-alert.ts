@@ -44,15 +44,33 @@ function defaultState(): MarketStateAlertState {
 
 async function loadState(path: string): Promise<MarketStateAlertState> {
   try {
-    const raw = JSON.parse(await readFile(resolve(path), 'utf-8')) as Partial<MarketStateAlertState>
+    const raw = JSON.parse(await readFile(resolve(path), 'utf-8')) as unknown
+    if (!raw || typeof raw !== 'object' || Array.isArray(raw)) throw new Error('state must be a JSON object')
+    const state = raw as Partial<MarketStateAlertState>
+    if (state.schemaVersion !== undefined && state.schemaVersion !== 1) throw new Error(`unsupported schemaVersion: ${String(state.schemaVersion)}`)
+    for (const key of ['lastEvaluatedDayUtc', 'lastNotifiedTransitionKey', 'initialSmokeSentFor'] as const) {
+      if (state[key] !== undefined && typeof state[key] !== 'string') throw new Error(`${key} must be a string`)
+    }
     return {
       schemaVersion: 1,
-      lastEvaluatedDayUtc: raw.lastEvaluatedDayUtc,
-      lastNotifiedTransitionKey: raw.lastNotifiedTransitionKey,
-      initialSmokeSentFor: raw.initialSmokeSentFor,
+      lastEvaluatedDayUtc: state.lastEvaluatedDayUtc,
+      lastNotifiedTransitionKey: state.lastNotifiedTransitionKey,
+      initialSmokeSentFor: state.initialSmokeSentFor,
     }
-  } catch {
-    return defaultState()
+  } catch (err) {
+    if (err && typeof err === 'object' && 'code' in err && (err as NodeJS.ErrnoException).code === 'ENOENT') {
+      return defaultState()
+    }
+    throw new Error(`market-state-alert state unreadable: ${err instanceof Error ? err.message : String(err)}`)
+  }
+}
+
+async function loadStateOrUndefined(path: string): Promise<MarketStateAlertState | undefined> {
+  try {
+    return await loadState(path)
+  } catch (err) {
+    console.warn(err instanceof Error ? err.message : String(err))
+    return undefined
   }
 }
 
@@ -102,7 +120,7 @@ export function buildTransitionMessage(t: StressTransition, nextTrigger: string 
     formatLine('反彈確認線(rebound_line)', t.reboundLine),
     ...(t.reasonLines.length > 0 ? ['原因:', ...t.reasonLines.map(line => `- ${line}`)] : []),
     `下一個條件: ${nextTrigger ?? 'n/a'}`,
-    '依你的 v1 規則,這只代表可以人工 review,不是自動進場。',
+    '依你的 v1 規則,這只代表人工 review 條件成立,不代表任何執行動作。',
     '提醒:這不是交易訊號。如果你選擇交易,請走 Alice stage -> commit -> Trading as Git verdict。',
   ]
   return lines.join('\n')
@@ -166,7 +184,8 @@ export function createMarketStateAlert(opts: MarketStateAlertOpts): MarketStateA
       return
     }
 
-    const state = await loadState(config.statePath)
+    const state = await loadStateOrUndefined(config.statePath)
+    if (!state) return
     const latest = result.latest
     if (state.lastEvaluatedDayUtc === latest.dateUtc) return
 

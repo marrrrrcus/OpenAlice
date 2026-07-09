@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { join } from 'node:path'
+import { join, normalize } from 'node:path'
 import { tmpdir } from 'node:os'
 import { writeFile, mkdir } from 'node:fs/promises'
 import { randomUUID } from 'node:crypto'
@@ -10,7 +10,7 @@ import { resolveMediaPath, persistMedia } from './media-store.js'
 describe('resolveMediaPath', () => {
   it('should join MEDIA_DIR with the given name', () => {
     const result = resolveMediaPath('2026-01-01/ace-aim-air.png')
-    expect(result).toContain('data/media/2026-01-01/ace-aim-air.png')
+    expect(result).toContain(normalize('data/media/2026-01-01/ace-aim-air.png'))
   })
 })
 

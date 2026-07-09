@@ -77,7 +77,7 @@ export async function persistMedia(filePath: string): Promise<string> {
     await copyFile(filePath, dest)
   }
 
-  return join(dateDir, name)
+  return `${dateDir}/${name}`
 }
 
 /** Resolve a media relative path to its absolute path on disk. */

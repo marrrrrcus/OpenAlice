@@ -1,7 +1,7 @@
 import { tool } from 'ai'
 import { z } from 'zod'
 import { readdir, stat } from 'node:fs/promises'
-import { join, resolve, relative } from 'node:path'
+import { join, resolve, relative, sep } from 'node:path'
 import { readFile } from 'node:fs/promises'
 import type { ConnectorCenter } from '@/core/connector-center.js'
 import { getActiveEntries } from '@/core/compaction.js'
@@ -146,7 +146,7 @@ async function findJsonlFiles(
         results.push(...await findJsonlFiles(fullPath, base))
       } else if (entry.name.endsWith('.jsonl')) {
         const s = await stat(fullPath)
-        const id = relative(base, fullPath).replace(/\.jsonl$/, '')
+        const id = relative(base, fullPath).replace(/\.jsonl$/, '').split(sep).join('/')
         results.push({ id, sizeBytes: s.size, lastModified: s.mtime.toISOString() })
       }
     }

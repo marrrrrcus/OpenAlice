@@ -109,6 +109,21 @@ function daysBetween(a: string, b: string): number {
   return Math.round((Date.parse(`${b}T00:00:00Z`) - Date.parse(`${a}T00:00:00Z`)) / DAY_MS)
 }
 
+function validateCompletedDailyCalendar(candles: readonly StressDailyCandle[]): string | undefined {
+  for (let i = 0; i < candles.length; i++) {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(candles[i].dateUtc)) {
+      return `invalid UTC daily candle date: ${candles[i].dateUtc}`
+    }
+    if (i === 0) continue
+    const delta = daysBetween(candles[i - 1].dateUtc, candles[i].dateUtc)
+    if (delta === 0) return `duplicate UTC daily candle date: ${candles[i].dateUtc}`
+    if (delta !== 1) {
+      return `missing UTC daily candle between ${candles[i - 1].dateUtc} and ${candles[i].dateUtc}`
+    }
+  }
+  return undefined
+}
+
 function nextTriggerFor(
   state: StressReboundState,
   close: Decimal,
@@ -298,6 +313,8 @@ export function computeStressRebound(
   params: StressReboundParams = DEFAULT_STRESS_REBOUND_PARAMS,
 ): StressReboundResult {
   const candles = [...input].sort((a, b) => a.dateUtc.localeCompare(b.dateUtc))
+  const calendarError = validateCompletedDailyCalendar(candles)
+  if (calendarError) return { ok: false, error: calendarError, series: [], transitions: [] }
   const warmup = Math.max(params.sma60, params.sma120, params.sma200, params.sma240)
   if (candles.length < warmup) {
     return { ok: false, error: `need >=${warmup} completed daily candles, got ${candles.length}`, series: [], transitions: [] }
