@@ -32,6 +32,7 @@ import {
   deleteCredential,
   credentialSchema,
   extractCredentialFromProfile,
+  autoTradingSchema,
   microstructureAlertSchema,
   liveReadinessAlertSchema,
   type Profile,
@@ -549,5 +550,19 @@ describe('liveReadinessAlertSchema', () => {
   it('honours an explicit disable for local maintenance windows', () => {
     const parsed = liveReadinessAlertSchema.parse({ enabled: false })
     expect(parsed.enabled).toBe(false)
+  })
+})
+
+describe('autoTradingSchema', () => {
+  it('defaults to disabled so a freshly seeded config never starts order automation', () => {
+    const parsed = autoTradingSchema.parse({})
+    expect(parsed.enabled).toBe(false)
+    expect(parsed.tickEvery).toBe('15m')
+    expect(parsed.marketSnapshotPath).toBe('data/market-snapshot.json')
+  })
+
+  it('requires an explicit opt-in to enable order automation', () => {
+    const parsed = autoTradingSchema.parse({ enabled: true })
+    expect(parsed.enabled).toBe(true)
   })
 })
