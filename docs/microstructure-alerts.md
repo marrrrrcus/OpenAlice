@@ -218,6 +218,12 @@ Microstructure data is noisy. A rule that fires every tick is not an alert;
 it is noise. The state file (`data/microstructure-alert-state.json`) holds
 two layers per symbol.
 
+The top-level state also records `runtimeIdentity` (`source` + `symbols`) and
+freshness clocks for order-book and funding observations. If the configured
+source or watchlist changes, the monitor clears old baselines/lifecycles/clocks
+before accepting the next observation, and `live:preflight` refuses to treat
+fresh clocks from a previous identity as current readiness.
+
 The state file is not auto-reset on corruption. If it contains unreadable JSON
 or malformed top-level fields, the monitor emits no Telegram notification and
 does not overwrite the file. Fix the file or intentionally remove it before

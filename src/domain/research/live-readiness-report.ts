@@ -93,8 +93,24 @@ function checkMarketStateState(raw: unknown): MarketStateStateCheck {
 
 interface MicrostructureStateCheck {
   detail: string
+  runtimeIdentity: MicrostructureRuntimeIdentity | null
   lastOrderBookAtMs: number | null
   lastFundingAtMs: number | null
+}
+
+interface MicrostructureRuntimeIdentity {
+  source: string | null
+  symbols: string[]
+}
+
+function microstructureRuntimeIdentity(config: MicrostructureAlertConfig): MicrostructureRuntimeIdentity {
+  const source = config.source.trim()
+  return { source: source.length > 0 ? source : null, symbols: [...config.symbols] }
+}
+
+function sameMicrostructureIdentity(a: MicrostructureRuntimeIdentity | null, b: MicrostructureRuntimeIdentity): boolean {
+  if (!a) return false
+  return a.source === b.source && a.symbols.length === b.symbols.length && a.symbols.every((symbol, i) => symbol === b.symbols[i])
 }
 
 function checkMicrostructureState(raw: unknown): MicrostructureStateCheck {
@@ -103,6 +119,20 @@ function checkMicrostructureState(raw: unknown): MicrostructureStateCheck {
   if (!isRecord(baselines)) throw new Error('baselines must be an object')
   const lifecycles = raw['lifecycles']
   if (!isRecord(lifecycles)) throw new Error('lifecycles must be an object')
+  const runtimeIdentityRaw = raw['runtimeIdentity']
+  let runtimeIdentity: MicrostructureRuntimeIdentity | null = null
+  if (runtimeIdentityRaw !== null && runtimeIdentityRaw !== undefined) {
+    if (!isRecord(runtimeIdentityRaw)) throw new Error('runtimeIdentity must be null or an object')
+    const source = runtimeIdentityRaw['source']
+    const symbols = runtimeIdentityRaw['symbols']
+    if (source !== null && source !== undefined && typeof source !== 'string') {
+      throw new Error('runtimeIdentity.source must be null or a string')
+    }
+    if (!Array.isArray(symbols) || !symbols.every((symbol) => typeof symbol === 'string')) {
+      throw new Error('runtimeIdentity.symbols must be an array of strings')
+    }
+    runtimeIdentity = { source: source ?? null, symbols: [...symbols] }
+  }
   const lastFunding = raw['lastFundingAtMs']
   const lastOrderBook = raw['lastOrderBookAtMs']
   if (
@@ -122,6 +152,7 @@ function checkMicrostructureState(raw: unknown): MicrostructureStateCheck {
 
   return {
     detail: `state readable; ${Object.keys(baselines).length} baseline key(s), ${Object.keys(lifecycles).length} lifecycle key(s)`,
+    runtimeIdentity,
     lastOrderBookAtMs: typeof lastOrderBook === 'number' ? lastOrderBook : null,
     lastFundingAtMs: typeof lastFunding === 'number' ? lastFunding : null,
   }
@@ -236,6 +267,20 @@ export async function buildLiveReadinessReport(deps: LiveReadinessReportDeps): P
   try {
     const stateCheck = checkMicrostructureState(await readJson(deps.microstructureAlert.statePath, readText))
     checks.push(ok('microstructure_alert_state', 'Microstructure state file readable', stateCheck.detail))
+    const expectedIdentity = microstructureRuntimeIdentity(deps.microstructureAlert)
+    if (!sameMicrostructureIdentity(stateCheck.runtimeIdentity, expectedIdentity)) {
+      checks.push(attention(
+        'microstructure_alert_identity',
+        'Microstructure state matches current config',
+        `state identity ${JSON.stringify(stateCheck.runtimeIdentity)} does not match config ${JSON.stringify(expectedIdentity)}`,
+      ))
+    } else {
+      checks.push(ok(
+        'microstructure_alert_identity',
+        'Microstructure state matches current config',
+        `source ${expectedIdentity.source ?? '(fallback)'}; ${expectedIdentity.symbols.length} symbol(s)`,
+      ))
+    }
     const orderBookEveryMs = parseDuration(deps.microstructureAlert.orderbookEvery)
     if (stateCheck.lastOrderBookAtMs === null) {
       checks.push(attention(

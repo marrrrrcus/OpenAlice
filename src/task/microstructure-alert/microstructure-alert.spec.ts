@@ -126,6 +126,7 @@ describe('createMicrostructureAlert — tick orchestration (module-level)', () =
     const st = JSON.parse(await readFile(cfg.statePath, 'utf-8'))
     expect(st.baselines['BTC/USDT:USDT'].obSamples).toBe(1)
     expect(st.baselines['BTC/USDT:USDT'].spreadPctEwma).toBeGreaterThan(0)
+    expect(st.runtimeIdentity).toEqual({ source: 'X', symbols: ['BTC/USDT:USDT'] })
     expect(typeof st.lastOrderBookAtMs).toBe('number')
   })
 
@@ -175,6 +176,7 @@ describe('createMicrostructureAlert — tick orchestration (module-level)', () =
     await m.start(); await m.runNow(); m.stop()
 
     const st = JSON.parse(await readFile(cfg.statePath, 'utf-8'))
+    expect(st.runtimeIdentity).toEqual({ source: 'X', symbols: ['BTC/USDT:USDT'] })
     expect(st.lastOrderBookAtMs).toBeNull()
     expect(st.lastFundingAtMs).toBe(1234)
     expect(st.baselines['BTC/USDT:USDT'].fundingHistory.length).toBe(1)
@@ -189,9 +191,35 @@ describe('createMicrostructureAlert — tick orchestration (module-level)', () =
     await m.start(); await m.runNow(); m.stop()
 
     const st = JSON.parse(await readFile(cfg.statePath, 'utf-8'))
+    expect(st.runtimeIdentity).toEqual({ source: 'X', symbols: ['BTC/USDT:USDT'] })
     expect(st.lastOrderBookAtMs).toBe(1234)
     expect(st.lastFundingAtMs).toBe(1234)
     expect(st.baselines['BTC/USDT:USDT'].fundingHistory.length).toBe(1)
+  })
+
+  it('resets old source state before trusting freshness clocks', async () => {
+    const acc = fakeAccount('X')
+    const cc = { notify: async () => ({} as any) } as any
+    const cfg = baseConfig()
+
+    const first = createMicrostructureAlert({ config: cfg, manager: fakeManager(acc.sdk), connectorCenter: cc, now: () => 1111 })
+    await first.start(); await first.runNow(); first.stop()
+
+    const oldState = JSON.parse(await readFile(cfg.statePath, 'utf-8'))
+    oldState.runtimeIdentity = { source: 'old-source', symbols: ['DOGE/USDT:USDT'] }
+    oldState.lastOrderBookAtMs = 999
+    oldState.lastFundingAtMs = 999
+    await writeFile(cfg.statePath, JSON.stringify(oldState), 'utf-8')
+
+    const second = createMicrostructureAlert({ config: cfg, manager: fakeManager(acc.sdk), connectorCenter: cc, now: () => 1234 })
+    await second.start(); await second.runNow(); second.stop()
+
+    const st = JSON.parse(await readFile(cfg.statePath, 'utf-8'))
+    expect(st.runtimeIdentity).toEqual({ source: 'X', symbols: ['BTC/USDT:USDT'] })
+    expect(st.lastOrderBookAtMs).toBe(1234)
+    expect(st.lastFundingAtMs).toBe(1234)
+    expect(st.baselines['BTC/USDT:USDT'].obSamples).toBe(1)
+    expect(st.baselines['BTC/USDT:USDT'].fundingHistory).toHaveLength(1)
   })
 
   it('does not reset or overwrite an unreadable state file', async () => {

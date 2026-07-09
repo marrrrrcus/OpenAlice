@@ -51,12 +51,18 @@ import { decideNotification, emptyLifecycle, type AlertLifecycle } from './lifec
 export interface MicrostructureState {
   baselines: Record<string, SymbolBaseline>
   lifecycles: Record<string, Record<string, AlertLifecycle>>
+  runtimeIdentity: MicrostructureRuntimeIdentity | null
   lastOrderBookAtMs: number | null
   lastFundingAtMs: number | null
 }
 
+export interface MicrostructureRuntimeIdentity {
+  source: string | null
+  symbols: string[]
+}
+
 function defaultState(): MicrostructureState {
-  return { baselines: {}, lifecycles: {}, lastOrderBookAtMs: null, lastFundingAtMs: null }
+  return { baselines: {}, lifecycles: {}, runtimeIdentity: null, lastOrderBookAtMs: null, lastFundingAtMs: null }
 }
 
 // ==================== Module ====================
@@ -97,6 +103,16 @@ export function createMicrostructureAlert(opts: MicrostructureAlertOpts): Micros
   const cooldownMs = parseDuration(config.cooldown) ?? 30 * 60 * 1000
   const fundingEveryMs = parseDuration(config.fundingEvery) ?? 30 * 60 * 1000
 
+  function currentRuntimeIdentity(): MicrostructureRuntimeIdentity {
+    const source = config.source.trim()
+    return { source: source.length > 0 ? source : null, symbols: [...config.symbols] }
+  }
+
+  function sameRuntimeIdentity(a: MicrostructureRuntimeIdentity | null, b: MicrostructureRuntimeIdentity): boolean {
+    if (!a) return false
+    return a.source === b.source && a.symbols.length === b.symbols.length && a.symbols.every((symbol, i) => symbol === b.symbols[i])
+  }
+
   // ---- state persistence ----
 
   async function loadState(): Promise<MicrostructureState> {
@@ -109,6 +125,20 @@ export function createMicrostructureAlert(opts: MicrostructureAlertOpts): Micros
       }
       if (state.lifecycles !== undefined && (!state.lifecycles || typeof state.lifecycles !== 'object' || Array.isArray(state.lifecycles))) {
         throw new Error('lifecycles must be an object')
+      }
+      let runtimeIdentity: MicrostructureRuntimeIdentity | null = null
+      if (state.runtimeIdentity !== undefined && state.runtimeIdentity !== null) {
+        if (!state.runtimeIdentity || typeof state.runtimeIdentity !== 'object' || Array.isArray(state.runtimeIdentity)) {
+          throw new Error('runtimeIdentity must be null or an object')
+        }
+        const identity = state.runtimeIdentity as Partial<MicrostructureRuntimeIdentity>
+        if (identity.source !== null && identity.source !== undefined && typeof identity.source !== 'string') {
+          throw new Error('runtimeIdentity.source must be null or a string')
+        }
+        if (!Array.isArray(identity.symbols) || !identity.symbols.every((symbol) => typeof symbol === 'string')) {
+          throw new Error('runtimeIdentity.symbols must be an array of strings')
+        }
+        runtimeIdentity = { source: identity.source ?? null, symbols: [...identity.symbols] }
       }
       if (
         state.lastOrderBookAtMs !== undefined
@@ -127,6 +157,7 @@ export function createMicrostructureAlert(opts: MicrostructureAlertOpts): Micros
       return {
         baselines: state.baselines ?? {},
         lifecycles: state.lifecycles ?? {},
+        runtimeIdentity,
         lastOrderBookAtMs: state.lastOrderBookAtMs ?? null,
         lastFundingAtMs: state.lastFundingAtMs ?? null,
       }
@@ -228,6 +259,14 @@ export function createMicrostructureAlert(opts: MicrostructureAlertOpts): Micros
 
     const state = await loadStateOrUndefined()
     if (!state) return
+    const identity = currentRuntimeIdentity()
+    if (!sameRuntimeIdentity(state.runtimeIdentity, identity)) {
+      state.baselines = {}
+      state.lifecycles = {}
+      state.lastOrderBookAtMs = null
+      state.lastFundingAtMs = null
+      state.runtimeIdentity = identity
+    }
     const fundingDue = state.lastFundingAtMs === null || now() - state.lastFundingAtMs >= fundingEveryMs
     // Only advance the funding clock once at least one symbol's funding
     // actually came back — otherwise a transient funding-API failure would
