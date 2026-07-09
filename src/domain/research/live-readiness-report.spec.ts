@@ -13,6 +13,9 @@ const autoTradingOff: AutoTradingConfig = {
   marketSnapshotPath: 'data/market-snapshot.json',
 }
 
+const reportNow = new Date('2026-07-09T00:30:00Z')
+const freshFundingMs = Date.parse('2026-07-09T00:10:00Z')
+
 const marketStateAlert: MarketStateAlertConfig = {
   enabled: true,
   every: '1h',
@@ -71,7 +74,7 @@ const files = new Map<string, string>([
     JSON.stringify({
       baselines: { btc: {}, eth: {} },
       lifecycles: { btc: {} },
-      lastFundingAtMs: 1,
+      lastFundingAtMs: freshFundingMs,
     }),
   ],
 ])
@@ -90,7 +93,7 @@ describe('live_readiness_report', () => {
       connectors,
       marketStateAlert,
       microstructureAlert,
-      now: () => new Date('2026-07-09T00:00:00Z'),
+      now: () => reportNow,
       readText,
       marketStateReport: async () => ({
         status: 'ok',
@@ -119,6 +122,7 @@ describe('live_readiness_report', () => {
       connectors,
       marketStateAlert,
       microstructureAlert,
+      now: () => reportNow,
       readText,
       marketStateReport: async () => ({
         status: 'ok',
@@ -143,6 +147,7 @@ describe('live_readiness_report', () => {
       },
       marketStateAlert,
       microstructureAlert,
+      now: () => reportNow,
       readText,
       marketStateReport: async () => ({
         status: 'ok',
@@ -159,12 +164,66 @@ describe('live_readiness_report', () => {
     expect(report.attentionItems.some((item) => item.includes('no chat target configured'))).toBe(true)
   })
 
+  it('raises attention when the BTC stress scheduled state has not caught up to the current completed day', async () => {
+    const report = await buildLiveReadinessReport({
+      autoTrading: autoTradingOff,
+      connectors,
+      marketStateAlert,
+      microstructureAlert,
+      now: () => reportNow,
+      readText,
+      marketStateReport: async () => ({
+        status: 'ok',
+        symbol: 'BTCUSDT',
+        source: 'binance_spot_daily_close',
+        state: 'stress_watch',
+        dateUtc: '2026-07-09',
+        discipline: 'not a trade signal',
+      }),
+    })
+
+    expect(report.status).toBe('attention')
+    expect(report.attentionItems.some((item) => item.includes('state last evaluated 2026-07-08'))).toBe(true)
+  })
+
+  it('raises attention when the microstructure funding state is stale', async () => {
+    const report = await buildLiveReadinessReport({
+      autoTrading: autoTradingOff,
+      connectors,
+      marketStateAlert,
+      microstructureAlert,
+      now: () => reportNow,
+      readText: async (path) => {
+        if (path.includes('microstructure-alert-state')) {
+          return JSON.stringify({
+            baselines: { btc: {}, eth: {} },
+            lifecycles: { btc: {} },
+            lastFundingAtMs: Date.parse('2026-07-08T22:00:00Z'),
+          })
+        }
+        return readText(path)
+      },
+      marketStateReport: async () => ({
+        status: 'ok',
+        symbol: 'BTCUSDT',
+        source: 'binance_spot_daily_close',
+        state: 'stress_watch',
+        dateUtc: '2026-07-08',
+        discipline: 'not a trade signal',
+      }),
+    })
+
+    expect(report.status).toBe('attention')
+    expect(report.attentionItems.some((item) => item.includes('last funding tick is'))).toBe(true)
+  })
+
   it('raises attention instead of trusting corrupt monitor state', async () => {
     const report = await buildLiveReadinessReport({
       autoTrading: autoTradingOff,
       connectors,
       marketStateAlert,
       microstructureAlert,
+      now: () => reportNow,
       readText: async (path) => {
         if (path.includes('market-state-alert-state')) return '{not json'
         return readText(path)
@@ -189,6 +248,7 @@ describe('live_readiness_report', () => {
       connectors,
       marketStateAlert,
       microstructureAlert,
+      now: () => reportNow,
       readText,
       marketStateReport: async () => ({
         status: 'unknown',

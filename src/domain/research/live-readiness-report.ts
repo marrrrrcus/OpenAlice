@@ -2,6 +2,7 @@ import { readFile } from 'node:fs/promises'
 import { resolve } from 'node:path'
 import { tool } from 'ai'
 import { z } from 'zod'
+import { parseDuration } from '@/core/duration.js'
 import type {
   AutoTradingConfig,
   Config,
@@ -42,6 +43,7 @@ export interface LiveReadinessReportDeps {
 }
 
 const DISCIPLINE = 'Alert readiness only. This is not a trade signal, proposal, strategy-shadow result, or permission to place orders.'
+const MICROSTRUCTURE_STALE_MULTIPLE = 2
 
 function ok(id: string, label: string, detail: string): LiveReadinessCheck {
   return { id, label, status: 'ok', detail }
@@ -63,7 +65,12 @@ async function readJson(path: string, readText: (path: string) => Promise<string
   return parseJson(await readText(resolve(path)))
 }
 
-function checkMarketStateState(raw: unknown): string {
+interface MarketStateStateCheck {
+  detail: string
+  lastEvaluatedDayUtc?: string
+}
+
+function checkMarketStateState(raw: unknown): MarketStateStateCheck {
   if (!isRecord(raw)) throw new Error('state must be a JSON object')
   if (raw['schemaVersion'] !== 1) throw new Error('schemaVersion must be 1')
 
@@ -77,10 +84,17 @@ function checkMarketStateState(raw: unknown): string {
     throw new Error('initialSmokeSentFor must be a string when present')
   }
 
-  return typeof last === 'string' ? `last evaluated UTC day ${last}` : 'state readable; no evaluated day recorded yet'
+  return typeof last === 'string'
+    ? { detail: `last evaluated UTC day ${last}`, lastEvaluatedDayUtc: last }
+    : { detail: 'state readable; no evaluated day recorded yet' }
 }
 
-function checkMicrostructureState(raw: unknown): string {
+interface MicrostructureStateCheck {
+  detail: string
+  lastFundingAtMs: number | null
+}
+
+function checkMicrostructureState(raw: unknown): MicrostructureStateCheck {
   if (!isRecord(raw)) throw new Error('state must be a JSON object')
   const baselines = raw['baselines']
   if (!isRecord(baselines)) throw new Error('baselines must be an object')
@@ -95,7 +109,10 @@ function checkMicrostructureState(raw: unknown): string {
     throw new Error('lastFundingAtMs must be null or a non-negative finite number')
   }
 
-  return `state readable; ${Object.keys(baselines).length} baseline key(s), ${Object.keys(lifecycles).length} lifecycle key(s)`
+  return {
+    detail: `state readable; ${Object.keys(baselines).length} baseline key(s), ${Object.keys(lifecycles).length} lifecycle key(s)`,
+    lastFundingAtMs: typeof lastFunding === 'number' ? lastFunding : null,
+  }
 }
 
 export async function buildLiveReadinessReport(deps: LiveReadinessReportDeps): Promise<LiveReadinessReport> {
@@ -103,6 +120,8 @@ export async function buildLiveReadinessReport(deps: LiveReadinessReportDeps): P
   const readText = deps.readText ?? ((path: string) => readFile(path, 'utf-8'))
   const marketStateReport = deps.marketStateReport ?? (() => buildMarketStateReport({ config: deps.marketStateAlert }))
   const checks: LiveReadinessCheck[] = []
+  let marketStateLastEvaluatedDayUtc: string | undefined
+  let currentMarketStateReport: MarketStateReport | undefined
 
   checks.push(
     deps.autoTrading.enabled
@@ -135,8 +154,9 @@ export async function buildLiveReadinessReport(deps: LiveReadinessReportDeps): P
   )
 
   try {
-    const detail = checkMarketStateState(await readJson(deps.marketStateAlert.statePath, readText))
-    checks.push(ok('market_state_alert_state', 'BTC stress state file readable', detail))
+    const stateCheck = checkMarketStateState(await readJson(deps.marketStateAlert.statePath, readText))
+    marketStateLastEvaluatedDayUtc = stateCheck.lastEvaluatedDayUtc
+    checks.push(ok('market_state_alert_state', 'BTC stress state file readable', stateCheck.detail))
   } catch (err) {
     checks.push(attention(
       'market_state_alert_state',
@@ -147,6 +167,7 @@ export async function buildLiveReadinessReport(deps: LiveReadinessReportDeps): P
 
   try {
     const report = await marketStateReport()
+    currentMarketStateReport = report
     if (report.status === 'ok') {
       checks.push(ok('market_state_report_current', 'BTC stress report current', `${report.state ?? 'unknown'} on ${report.dateUtc ?? 'unknown date'}`))
     } else {
@@ -158,6 +179,28 @@ export async function buildLiveReadinessReport(deps: LiveReadinessReportDeps): P
       'BTC stress report current',
       err instanceof Error ? err.message : String(err),
     ))
+  }
+
+  if (currentMarketStateReport?.status === 'ok' && currentMarketStateReport.dateUtc) {
+    if (!marketStateLastEvaluatedDayUtc) {
+      checks.push(attention(
+        'market_state_alert_fresh',
+        'BTC stress scheduled state fresh',
+        `no evaluated day recorded; current completed day is ${currentMarketStateReport.dateUtc}`,
+      ))
+    } else if (marketStateLastEvaluatedDayUtc !== currentMarketStateReport.dateUtc) {
+      checks.push(attention(
+        'market_state_alert_fresh',
+        'BTC stress scheduled state fresh',
+        `state last evaluated ${marketStateLastEvaluatedDayUtc}, but current completed day is ${currentMarketStateReport.dateUtc}`,
+      ))
+    } else {
+      checks.push(ok(
+        'market_state_alert_fresh',
+        'BTC stress scheduled state fresh',
+        `scheduled state matches current completed day ${currentMarketStateReport.dateUtc}`,
+      ))
+    }
   }
 
   checks.push(
@@ -173,8 +216,38 @@ export async function buildLiveReadinessReport(deps: LiveReadinessReportDeps): P
   )
 
   try {
-    const detail = checkMicrostructureState(await readJson(deps.microstructureAlert.statePath, readText))
-    checks.push(ok('microstructure_alert_state', 'Microstructure state file readable', detail))
+    const stateCheck = checkMicrostructureState(await readJson(deps.microstructureAlert.statePath, readText))
+    checks.push(ok('microstructure_alert_state', 'Microstructure state file readable', stateCheck.detail))
+    const fundingEveryMs = parseDuration(deps.microstructureAlert.fundingEvery)
+    if (stateCheck.lastFundingAtMs === null) {
+      checks.push(attention(
+        'microstructure_alert_fresh',
+        'Microstructure funding state fresh',
+        'lastFundingAtMs is not recorded yet',
+      ))
+    } else if (!fundingEveryMs) {
+      checks.push(attention(
+        'microstructure_alert_fresh',
+        'Microstructure funding state fresh',
+        `fundingEvery is not parseable: ${deps.microstructureAlert.fundingEvery}`,
+      ))
+    } else {
+      const ageMs = now().getTime() - stateCheck.lastFundingAtMs
+      const maxAgeMs = fundingEveryMs * MICROSTRUCTURE_STALE_MULTIPLE
+      if (ageMs > maxAgeMs) {
+        checks.push(attention(
+          'microstructure_alert_fresh',
+          'Microstructure funding state fresh',
+          `last funding tick is ${Math.round(ageMs / 60_000)}m old; expected <= ${Math.round(maxAgeMs / 60_000)}m`,
+        ))
+      } else {
+        checks.push(ok(
+          'microstructure_alert_fresh',
+          'Microstructure funding state fresh',
+          `last funding tick is ${Math.max(0, Math.round(ageMs / 60_000))}m old`,
+        ))
+      }
+    }
   } catch (err) {
     checks.push(attention(
       'microstructure_alert_state',
