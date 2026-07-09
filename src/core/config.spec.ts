@@ -33,6 +33,7 @@ import {
   credentialSchema,
   extractCredentialFromProfile,
   microstructureAlertSchema,
+  liveReadinessAlertSchema,
   type Profile,
 } from './config.js'
 
@@ -534,5 +535,19 @@ describe('microstructureAlertSchema — fundingExtreme.minAbs backward-compat', 
       rules: { fundingExtreme: { medium: 60, high: 80, critical: 94, minAbs: 0.00005 } },
     })
     expect(parsed.rules.fundingExtreme.minAbs).toBe(0.00005)
+  })
+})
+
+describe('liveReadinessAlertSchema', () => {
+  it('defaults to enabled so alert-stack readiness self-monitors after seeding', () => {
+    const parsed = liveReadinessAlertSchema.parse({})
+    expect(parsed.enabled).toBe(true)
+    expect(parsed.every).toBe('15m')
+    expect(parsed.statePath).toBe('data/live-readiness-alert-state.json')
+  })
+
+  it('honours an explicit disable for local maintenance windows', () => {
+    const parsed = liveReadinessAlertSchema.parse({ enabled: false })
+    expect(parsed.enabled).toBe(false)
   })
 })
