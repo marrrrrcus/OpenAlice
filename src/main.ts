@@ -340,6 +340,11 @@ async function main() {
   await marketStateAlert.start()
   if (config.marketStateAlert.enabled) {
     console.log(`market-state-alert: enabled (every ${config.marketStateAlert.every}, symbol ${config.marketStateAlert.symbol})`)
+    // Fire the first evaluation immediately (deployment smoke) instead of
+    // waiting a full interval. Fire-and-forget: a slow/unreachable Binance
+    // fetch must never block startup — runNow swallows its own errors and the
+    // scheduled tick retries. The interval timer armed by start() is untouched.
+    void marketStateAlert.runNow()
   }
 
   // ==================== Account Report (Pump-driven, deterministic, zero-AI) ====================
