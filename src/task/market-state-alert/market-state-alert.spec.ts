@@ -110,7 +110,12 @@ describe('market-state-alert monitor', () => {
       expect(notified).toHaveLength(1)
       expect(notified[0]).toContain('初始狀態')
       expect(notified[0]).toContain('壓力觀察(stress_watch)')
+      expect(notified[0]).toContain('這不是交易訊號')
+      expect(notified[0]).toContain('Alice stage -> commit -> Trading as Git verdict')
       expectNoTradeActionLanguage(notified[0])
+      for (const forbidden of ['buy', 'sell', 'safe', 'validated']) {
+        expect(notified[0].toLowerCase()).not.toContain(forbidden)
+      }
       const saved = JSON.parse(await readFile(join(dir, 'state.json'), 'utf-8')) as Record<string, unknown>
       expect(saved['lastEvaluatedDayUtc']).toBe('2026-08-30')
     } finally {
