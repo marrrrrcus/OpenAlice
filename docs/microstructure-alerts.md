@@ -215,6 +215,11 @@ Microstructure data is noisy. A rule that fires every tick is not an alert;
 it is noise. The state file (`data/microstructure-alert-state.json`) holds
 two layers per symbol.
 
+The state file is not auto-reset on corruption. If it contains unreadable JSON
+or malformed top-level fields, the monitor emits no Telegram notification and
+does not overwrite the file. Fix the file or intentionally remove it before
+restarting first-run baseline behavior.
+
 **Layer A — per-symbol baselines** (the adaptive references, rolled forward
 each tick; this is what makes thresholds symbol-relative):
 

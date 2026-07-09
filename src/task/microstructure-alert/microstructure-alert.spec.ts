@@ -1,5 +1,5 @@
 import { describe, it, expect, afterEach } from 'vitest'
-import { readFile, unlink } from 'node:fs/promises'
+import { readFile, unlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { randomUUID } from 'node:crypto'
@@ -122,5 +122,34 @@ describe('createMicrostructureAlert — tick orchestration (module-level)', () =
     const st = JSON.parse(await readFile(cfg.statePath, 'utf-8'))
     expect(st.lastFundingAtMs).toBe(1234)
     expect(st.baselines['BTC/USDT:USDT'].fundingHistory.length).toBe(1)
+  })
+
+  it('does not reset or overwrite an unreadable state file', async () => {
+    const acc = fakeAccount('X')
+    const pushed: string[] = []
+    const cc = { notify: async (text: string) => { pushed.push(text); return {} as any } } as any
+    const cfg = baseConfig()
+    await writeFile(cfg.statePath, '{not json', 'utf-8')
+
+    const m = createMicrostructureAlert({ config: cfg, manager: fakeManager(acc.sdk), connectorCenter: cc })
+    await m.start(); await m.runNow(); m.stop()
+
+    expect(pushed).toEqual([])
+    expect(await readFile(cfg.statePath, 'utf-8')).toBe('{not json')
+  })
+
+  it('does not reset or overwrite a malformed state schema', async () => {
+    const acc = fakeAccount('X')
+    const pushed: string[] = []
+    const cc = { notify: async (text: string) => { pushed.push(text); return {} as any } } as any
+    const cfg = baseConfig()
+    await writeFile(cfg.statePath, JSON.stringify({ baselines: [], lifecycles: {}, lastFundingAtMs: null }) + '\n', 'utf-8')
+
+    const m = createMicrostructureAlert({ config: cfg, manager: fakeManager(acc.sdk), connectorCenter: cc })
+    await m.start(); await m.runNow(); m.stop()
+
+    expect(pushed).toEqual([])
+    const saved = JSON.parse(await readFile(cfg.statePath, 'utf-8')) as Record<string, unknown>
+    expect(Array.isArray(saved['baselines'])).toBe(true)
   })
 })

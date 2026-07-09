@@ -100,14 +100,41 @@ export function createMicrostructureAlert(opts: MicrostructureAlertOpts): Micros
 
   async function loadState(): Promise<MicrostructureState> {
     try {
-      const raw = JSON.parse(await readFile(resolvePath(config.statePath), 'utf-8')) as MicrostructureState
-      return {
-        baselines: raw.baselines ?? {},
-        lifecycles: raw.lifecycles ?? {},
-        lastFundingAtMs: raw.lastFundingAtMs ?? null,
+      const raw = JSON.parse(await readFile(resolvePath(config.statePath), 'utf-8')) as unknown
+      if (!raw || typeof raw !== 'object' || Array.isArray(raw)) throw new Error('state must be a JSON object')
+      const state = raw as Partial<MicrostructureState>
+      if (state.baselines !== undefined && (!state.baselines || typeof state.baselines !== 'object' || Array.isArray(state.baselines))) {
+        throw new Error('baselines must be an object')
       }
-    } catch {
-      return defaultState()
+      if (state.lifecycles !== undefined && (!state.lifecycles || typeof state.lifecycles !== 'object' || Array.isArray(state.lifecycles))) {
+        throw new Error('lifecycles must be an object')
+      }
+      if (
+        state.lastFundingAtMs !== undefined
+        && state.lastFundingAtMs !== null
+        && (!Number.isFinite(state.lastFundingAtMs) || state.lastFundingAtMs < 0)
+      ) {
+        throw new Error('lastFundingAtMs must be null or a non-negative finite number')
+      }
+      return {
+        baselines: state.baselines ?? {},
+        lifecycles: state.lifecycles ?? {},
+        lastFundingAtMs: state.lastFundingAtMs ?? null,
+      }
+    } catch (err) {
+      if (err && typeof err === 'object' && 'code' in err && (err as NodeJS.ErrnoException).code === 'ENOENT') {
+        return defaultState()
+      }
+      throw new Error(`microstructure-alert state unreadable: ${err instanceof Error ? err.message : String(err)}`)
+    }
+  }
+
+  async function loadStateOrUndefined(): Promise<MicrostructureState | undefined> {
+    try {
+      return await loadState()
+    } catch (err) {
+      console.warn(err instanceof Error ? err.message : String(err))
+      return undefined
     }
   }
 
@@ -188,7 +215,8 @@ export function createMicrostructureAlert(opts: MicrostructureAlertOpts): Micros
     const acc = await resolveAccount()
     if (!acc) return
 
-    const state = await loadState()
+    const state = await loadStateOrUndefined()
+    if (!state) return
     const fundingDue = state.lastFundingAtMs === null || now() - state.lastFundingAtMs >= fundingEveryMs
     // Only advance the funding clock once at least one symbol's funding
     // actually came back — otherwise a transient funding-API failure would
