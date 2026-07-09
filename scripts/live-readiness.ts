@@ -9,23 +9,6 @@
  * automation-friendly: 0 = ok, 1 = attention required.
  */
 
-import { loadConfig } from '../src/core/config.js'
-import { buildLiveReadinessReport } from '../src/domain/research/live-readiness-report.js'
+import { runLiveReadinessCli } from '../src/domain/research/live-readiness-cli.js'
 
-async function main() {
-  const config = await loadConfig()
-  const report = await buildLiveReadinessReport({
-    autoTrading: config.autoTrading,
-    connectors: config.connectors,
-    marketStateAlert: config.marketStateAlert,
-    microstructureAlert: config.microstructureAlert,
-  })
-
-  console.log(JSON.stringify(report, null, 2))
-  if (report.status !== 'ok') process.exitCode = 1
-}
-
-main().catch((err: unknown) => {
-  console.error(err instanceof Error ? err.stack ?? err.message : String(err))
-  process.exitCode = 1
-})
+process.exitCode = await runLiveReadinessCli()
