@@ -102,8 +102,9 @@ The report checks:
 - `live-readiness-alert` is enabled when expected.
 - Telegram notification delivery is configured, with token/chat values
   redacted.
-- `market-state-alert` is enabled and its scheduled state matches the latest
-  completed UTC daily BTC candle.
+- `market-state-alert` is enabled, its state identity matches the current BTC
+  stress config, and its scheduled state matches the latest completed UTC daily
+  BTC candle.
 - The current BTC market-state report can be computed.
 - `microstructure-alert` has a configured source, readable baseline/lifecycle
   state, state identity that matches the current source/symbols, a recent

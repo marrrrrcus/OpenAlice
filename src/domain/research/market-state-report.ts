@@ -36,6 +36,20 @@ export interface MarketStateReport {
   discipline: string
 }
 
+export interface MarketStateRuntimeIdentity {
+  symbol: string
+  historyLimit: number
+  drawdownPct: number
+  reboundMultiple: number
+  timeoutDays: number
+  smas: {
+    sma60: number
+    sma120: number
+    sma200: number
+    sma240: number
+  }
+}
+
 export function paramsFromConfig(config: MarketStateAlertConfig): StressReboundParams {
   return {
     sma60: config.smas.sma60,
@@ -46,6 +60,32 @@ export function paramsFromConfig(config: MarketStateAlertConfig): StressReboundP
     reboundMultiple: String(config.reboundMultiple),
     timeoutDays: config.timeoutDays,
   }
+}
+
+export function marketStateRuntimeIdentity(config: MarketStateAlertConfig): MarketStateRuntimeIdentity {
+  return {
+    symbol: config.symbol,
+    historyLimit: config.historyLimit,
+    drawdownPct: config.drawdownPct,
+    reboundMultiple: config.reboundMultiple,
+    timeoutDays: config.timeoutDays,
+    smas: { ...config.smas },
+  }
+}
+
+export function sameMarketStateIdentity(a: MarketStateRuntimeIdentity | null, b: MarketStateRuntimeIdentity): boolean {
+  return Boolean(
+    a
+      && a.symbol === b.symbol
+      && a.historyLimit === b.historyLimit
+      && a.drawdownPct === b.drawdownPct
+      && a.reboundMultiple === b.reboundMultiple
+      && a.timeoutDays === b.timeoutDays
+      && a.smas.sma60 === b.smas.sma60
+      && a.smas.sma120 === b.smas.sma120
+      && a.smas.sma200 === b.smas.sma200
+      && a.smas.sma240 === b.smas.sma240,
+  )
 }
 
 export async function buildMarketStateReport(deps: MarketStateReportDeps): Promise<MarketStateReport> {

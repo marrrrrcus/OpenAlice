@@ -15,10 +15,16 @@ import type { ConnectorCenter } from '../../core/connector-center.js'
 import type { MarketStateAlertConfig } from '../../core/config.js'
 import { fetchBinanceSpotDailyCandles, type FetchKlines } from '../../domain/research/stress-rebound/binance.js'
 import { computeStressRebound, transitionKey, type StressReboundState, type StressTransition, type StressTransitionType } from '../../domain/research/stress-rebound/machine.js'
-import { paramsFromConfig } from '../../domain/research/market-state-report.js'
+import {
+  marketStateRuntimeIdentity,
+  paramsFromConfig,
+  sameMarketStateIdentity,
+  type MarketStateRuntimeIdentity,
+} from '../../domain/research/market-state-report.js'
 
 export interface MarketStateAlertState {
   schemaVersion: 1
+  runtimeIdentity?: MarketStateRuntimeIdentity
   lastEvaluatedDayUtc?: string
   lastNotifiedTransitionKey?: string
   initialSmokeSentFor?: string
@@ -48,11 +54,25 @@ async function loadState(path: string): Promise<MarketStateAlertState> {
     if (!raw || typeof raw !== 'object' || Array.isArray(raw)) throw new Error('state must be a JSON object')
     const state = raw as Partial<MarketStateAlertState>
     if (state.schemaVersion !== undefined && state.schemaVersion !== 1) throw new Error(`unsupported schemaVersion: ${String(state.schemaVersion)}`)
+    if (state.runtimeIdentity !== undefined) {
+      const identity = state.runtimeIdentity
+      if (!identity || typeof identity !== 'object' || Array.isArray(identity)) throw new Error('runtimeIdentity must be an object')
+      if (typeof identity.symbol !== 'string') throw new Error('runtimeIdentity.symbol must be a string')
+      if (!Number.isInteger(identity.historyLimit) || identity.historyLimit <= 0) throw new Error('runtimeIdentity.historyLimit must be a positive integer')
+      if (!Number.isFinite(identity.drawdownPct) || identity.drawdownPct <= 0) throw new Error('runtimeIdentity.drawdownPct must be a positive finite number')
+      if (!Number.isFinite(identity.reboundMultiple) || identity.reboundMultiple <= 0) throw new Error('runtimeIdentity.reboundMultiple must be a positive finite number')
+      if (!Number.isInteger(identity.timeoutDays) || identity.timeoutDays <= 0) throw new Error('runtimeIdentity.timeoutDays must be a positive integer')
+      if (!identity.smas || typeof identity.smas !== 'object' || Array.isArray(identity.smas)) throw new Error('runtimeIdentity.smas must be an object')
+      for (const key of ['sma60', 'sma120', 'sma200', 'sma240'] as const) {
+        if (!Number.isInteger(identity.smas[key]) || identity.smas[key] <= 0) throw new Error(`runtimeIdentity.smas.${key} must be a positive integer`)
+      }
+    }
     for (const key of ['lastEvaluatedDayUtc', 'lastNotifiedTransitionKey', 'initialSmokeSentFor'] as const) {
       if (state[key] !== undefined && typeof state[key] !== 'string') throw new Error(`${key} must be a string`)
     }
     return {
       schemaVersion: 1,
+      runtimeIdentity: state.runtimeIdentity,
       lastEvaluatedDayUtc: state.lastEvaluatedDayUtc,
       lastNotifiedTransitionKey: state.lastNotifiedTransitionKey,
       initialSmokeSentFor: state.initialSmokeSentFor,
@@ -186,6 +206,13 @@ export function createMarketStateAlert(opts: MarketStateAlertOpts): MarketStateA
 
     const state = await loadStateOrUndefined(config.statePath)
     if (!state) return
+    const identity = marketStateRuntimeIdentity(config)
+    if (!sameMarketStateIdentity(state.runtimeIdentity ?? null, identity)) {
+      state.runtimeIdentity = identity
+      state.lastEvaluatedDayUtc = undefined
+      state.lastNotifiedTransitionKey = undefined
+      state.initialSmokeSentFor = undefined
+    }
     const latest = result.latest
     if (state.lastEvaluatedDayUtc === latest.dateUtc) return
 

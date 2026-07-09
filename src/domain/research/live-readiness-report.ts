@@ -12,6 +12,9 @@ import type {
 } from '@/core/config.js'
 import {
   buildMarketStateReport,
+  marketStateRuntimeIdentity,
+  sameMarketStateIdentity,
+  type MarketStateRuntimeIdentity,
   type MarketStateReport,
 } from './market-state-report.js'
 
@@ -69,12 +72,52 @@ async function readJson(path: string, readText: (path: string) => Promise<string
 
 interface MarketStateStateCheck {
   detail: string
+  runtimeIdentity: MarketStateRuntimeIdentity | null
   lastEvaluatedDayUtc?: string
 }
 
 function checkMarketStateState(raw: unknown): MarketStateStateCheck {
   if (!isRecord(raw)) throw new Error('state must be a JSON object')
   if (raw['schemaVersion'] !== 1) throw new Error('schemaVersion must be 1')
+
+  const runtimeIdentityRaw = raw['runtimeIdentity']
+  let runtimeIdentity: MarketStateRuntimeIdentity | null = null
+  if (runtimeIdentityRaw !== undefined) {
+    if (!isRecord(runtimeIdentityRaw)) throw new Error('runtimeIdentity must be an object')
+    const symbol = runtimeIdentityRaw['symbol']
+    const historyLimit = runtimeIdentityRaw['historyLimit']
+    const drawdownPct = runtimeIdentityRaw['drawdownPct']
+    const reboundMultiple = runtimeIdentityRaw['reboundMultiple']
+    const timeoutDays = runtimeIdentityRaw['timeoutDays']
+    const smas = runtimeIdentityRaw['smas']
+    if (typeof symbol !== 'string') throw new Error('runtimeIdentity.symbol must be a string')
+    if (typeof historyLimit !== 'number' || !Number.isInteger(historyLimit) || historyLimit <= 0) throw new Error('runtimeIdentity.historyLimit must be a positive integer')
+    if (typeof drawdownPct !== 'number' || !Number.isFinite(drawdownPct) || drawdownPct <= 0) throw new Error('runtimeIdentity.drawdownPct must be a positive finite number')
+    if (typeof reboundMultiple !== 'number' || !Number.isFinite(reboundMultiple) || reboundMultiple <= 0) throw new Error('runtimeIdentity.reboundMultiple must be a positive finite number')
+    if (typeof timeoutDays !== 'number' || !Number.isInteger(timeoutDays) || timeoutDays <= 0) throw new Error('runtimeIdentity.timeoutDays must be a positive integer')
+    if (!isRecord(smas)) throw new Error('runtimeIdentity.smas must be an object')
+    const sma60 = smas['sma60']
+    const sma120 = smas['sma120']
+    const sma200 = smas['sma200']
+    const sma240 = smas['sma240']
+    if (typeof sma60 !== 'number' || !Number.isInteger(sma60) || sma60 <= 0) throw new Error('runtimeIdentity.smas.sma60 must be a positive integer')
+    if (typeof sma120 !== 'number' || !Number.isInteger(sma120) || sma120 <= 0) throw new Error('runtimeIdentity.smas.sma120 must be a positive integer')
+    if (typeof sma200 !== 'number' || !Number.isInteger(sma200) || sma200 <= 0) throw new Error('runtimeIdentity.smas.sma200 must be a positive integer')
+    if (typeof sma240 !== 'number' || !Number.isInteger(sma240) || sma240 <= 0) throw new Error('runtimeIdentity.smas.sma240 must be a positive integer')
+    runtimeIdentity = {
+      symbol,
+      historyLimit,
+      drawdownPct,
+      reboundMultiple,
+      timeoutDays,
+      smas: {
+        sma60,
+        sma120,
+        sma200,
+        sma240,
+      },
+    }
+  }
 
   const last = raw['lastEvaluatedDayUtc']
   if (last !== undefined && typeof last !== 'string') {
@@ -87,8 +130,8 @@ function checkMarketStateState(raw: unknown): MarketStateStateCheck {
   }
 
   return typeof last === 'string'
-    ? { detail: `last evaluated UTC day ${last}`, lastEvaluatedDayUtc: last }
-    : { detail: 'state readable; no evaluated day recorded yet' }
+    ? { detail: `last evaluated UTC day ${last}`, runtimeIdentity, lastEvaluatedDayUtc: last }
+    : { detail: 'state readable; no evaluated day recorded yet', runtimeIdentity }
 }
 
 interface MicrostructureStateCheck {
@@ -206,6 +249,20 @@ export async function buildLiveReadinessReport(deps: LiveReadinessReportDeps): P
     const stateCheck = checkMarketStateState(await readJson(deps.marketStateAlert.statePath, readText))
     marketStateLastEvaluatedDayUtc = stateCheck.lastEvaluatedDayUtc
     checks.push(ok('market_state_alert_state', 'BTC stress state file readable', stateCheck.detail))
+    const expectedIdentity = marketStateRuntimeIdentity(deps.marketStateAlert)
+    if (!sameMarketStateIdentity(stateCheck.runtimeIdentity, expectedIdentity)) {
+      checks.push(attention(
+        'market_state_alert_identity',
+        'BTC stress state matches current config',
+        `state identity ${JSON.stringify(stateCheck.runtimeIdentity)} does not match config ${JSON.stringify(expectedIdentity)}`,
+      ))
+    } else {
+      checks.push(ok(
+        'market_state_alert_identity',
+        'BTC stress state matches current config',
+        `${expectedIdentity.symbol}; SMA ${expectedIdentity.smas.sma60}/${expectedIdentity.smas.sma120}/${expectedIdentity.smas.sma200}/${expectedIdentity.smas.sma240}`,
+      ))
+    }
   } catch (err) {
     checks.push(attention(
       'market_state_alert_state',

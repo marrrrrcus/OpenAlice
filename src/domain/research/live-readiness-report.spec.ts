@@ -29,6 +29,15 @@ const marketStateAlert: MarketStateAlertConfig = {
   statePath: 'data/market-state-alert-state.json',
 }
 
+const marketStateIdentity = {
+  symbol: marketStateAlert.symbol,
+  historyLimit: marketStateAlert.historyLimit,
+  drawdownPct: marketStateAlert.drawdownPct,
+  reboundMultiple: marketStateAlert.reboundMultiple,
+  timeoutDays: marketStateAlert.timeoutDays,
+  smas: marketStateAlert.smas,
+}
+
 const connectors: Config['connectors'] = {
   web: { port: 3002 },
   mcpAsk: { enabled: false },
@@ -77,6 +86,7 @@ const files = new Map<string, string>([
     'data/market-state-alert-state.json',
     JSON.stringify({
       schemaVersion: 1,
+      runtimeIdentity: marketStateIdentity,
       initialSmokeSentFor: '2026-07-08:stress_watch',
       lastEvaluatedDayUtc: '2026-07-08',
     }),
@@ -225,6 +235,39 @@ describe('live_readiness_report', () => {
 
     expect(report.status).toBe('attention')
     expect(report.attentionItems.some((item) => item.includes('state last evaluated 2026-07-08'))).toBe(true)
+  })
+
+  it('raises attention when the BTC stress state belongs to different config', async () => {
+    const report = await buildLiveReadinessReport({
+      autoTrading: autoTradingOff,
+      connectors,
+      liveReadinessAlert,
+      marketStateAlert,
+      microstructureAlert,
+      now: () => reportNow,
+      readText: async (path) => {
+        if (path.includes('market-state-alert-state')) {
+          return JSON.stringify({
+            schemaVersion: 1,
+            runtimeIdentity: { ...marketStateIdentity, smas: { ...marketStateIdentity.smas, sma200: 180 } },
+            initialSmokeSentFor: '2026-07-08:stress_watch',
+            lastEvaluatedDayUtc: '2026-07-08',
+          })
+        }
+        return readText(path)
+      },
+      marketStateReport: async () => ({
+        status: 'ok',
+        symbol: 'BTCUSDT',
+        source: 'binance_spot_daily_close',
+        state: 'stress_watch',
+        dateUtc: '2026-07-08',
+        discipline: 'not a trade signal',
+      }),
+    })
+
+    expect(report.status).toBe('attention')
+    expect(report.attentionItems.some((item) => item.includes('BTC stress state matches current config'))).toBe(true)
   })
 
   it('raises attention when the microstructure funding state is stale', async () => {

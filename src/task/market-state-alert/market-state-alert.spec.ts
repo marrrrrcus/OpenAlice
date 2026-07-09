@@ -5,6 +5,7 @@ import { join } from 'node:path'
 import { createMarketStateAlert, buildTransitionMessage } from './market-state-alert.js'
 import type { MarketStateAlertConfig } from '../../core/config.js'
 import type { BinanceKlineRow } from '../../domain/research/stress-rebound/binance.js'
+import { marketStateRuntimeIdentity } from '../../domain/research/market-state-report.js'
 import type { StressTransition } from '../../domain/research/stress-rebound/machine.js'
 
 function config(statePath: string): MarketStateAlertConfig {
@@ -32,6 +33,10 @@ function rows(closes: readonly number[], start = '2026-01-01'): BinanceKlineRow[
 
 function stressRows(): BinanceKlineRow[] {
   return rows([...Array(240).fill(80000), 58600, 61900])
+}
+
+function runtimeIdentity(statePath: string) {
+  return marketStateRuntimeIdentity(config(statePath))
 }
 
 function expectNoTradeActionLanguage(text: string): void {
@@ -117,6 +122,7 @@ describe('market-state-alert monitor', () => {
         expect(notified[0].toLowerCase()).not.toContain(forbidden)
       }
       const saved = JSON.parse(await readFile(join(dir, 'state.json'), 'utf-8')) as Record<string, unknown>
+      expect(saved['runtimeIdentity']).toEqual(runtimeIdentity(join(dir, 'state.json')))
       expect(saved['lastEvaluatedDayUtc']).toBe('2026-08-30')
     } finally {
       await rm(dir, { recursive: true, force: true })
@@ -228,6 +234,41 @@ describe('market-state-alert monitor', () => {
     }
   })
 
+  it('resets old config state before trusting evaluated-day freshness', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'msa-'))
+    try {
+      const statePath = join(dir, 'state.json')
+      const cfg = config(statePath)
+      await writeFile(statePath, JSON.stringify({
+        schemaVersion: 1,
+        runtimeIdentity: { ...marketStateRuntimeIdentity(cfg), smas: { ...cfg.smas, sma200: 180 } },
+        lastEvaluatedDayUtc: '2026-08-30',
+        initialSmokeSentFor: '2026-08-30:stress_watch',
+        lastNotifiedTransitionKey: 'old-transition',
+      }) + '\n')
+      const notified: string[] = []
+      const alert = createMarketStateAlert({
+        config: cfg,
+        connectorCenter: { notify: async (text: string) => { notified.push(text); return {} as any } } as any,
+        now: () => new Date('2026-09-01T12:00:00Z'),
+        fetchKlines: async () => stressRows(),
+      })
+      await alert.start()
+      await alert.runNow()
+      alert.stop()
+
+      expect(notified).toHaveLength(1)
+      expect(notified[0]).toContain('stress_watch')
+      const saved = JSON.parse(await readFile(statePath, 'utf-8')) as Record<string, unknown>
+      expect(saved['runtimeIdentity']).toEqual(marketStateRuntimeIdentity(cfg))
+      expect(saved['lastEvaluatedDayUtc']).toBe('2026-08-30')
+      expect(saved['lastNotifiedTransitionKey']).toBeUndefined()
+      expect(saved['initialSmokeSentFor']).toBe('2026-08-30:stress_watch')
+    } finally {
+      await rm(dir, { recursive: true, force: true })
+    }
+  })
+
   it('transition message contains numbers and avoids endorsement words', () => {
     const t: StressTransition = {
       dateUtc: '2026-07-01',
@@ -263,6 +304,7 @@ describe('market-state-alert monitor', () => {
       const cfg = config(statePath)
       await writeFile(statePath, JSON.stringify({
         schemaVersion: 1,
+        runtimeIdentity: runtimeIdentity(statePath),
         lastEvaluatedDayUtc: '2026-08-30',
         initialSmokeSentFor: '2026-08-30:rebound_confirmed',
         lastNotifiedTransitionKey: '2026-08-30:normal:stress_watch:enter_stress_watch',
@@ -290,6 +332,7 @@ describe('market-state-alert monitor', () => {
       const statePath = join(dir, 'state.json')
       await writeFile(statePath, JSON.stringify({
         schemaVersion: 1,
+        runtimeIdentity: runtimeIdentity(statePath),
         lastEvaluatedDayUtc: '2026-08-29',
         initialSmokeSentFor: '2026-08-29:stress_watch',
       }) + '\n')
