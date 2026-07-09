@@ -60,7 +60,51 @@ function fakeManager(acc: any) {
   return { resolveOne: async () => acc, resolve: async () => [acc] } as any
 }
 
+const alertOnlySourceFiles = [
+  'src/task/microstructure-alert/microstructure-alert.ts',
+  'src/task/microstructure-alert/index.ts',
+  'src/task/microstructure-alert/rules.ts',
+  'src/task/microstructure-alert/lifecycle.ts',
+]
+
 describe('createMicrostructureAlert — tick orchestration (module-level)', () => {
+  it('has no authenticated trading surface in the alert-only implementation', async () => {
+    const forbidden = [
+      /api[_-]?key/i,
+      /secret/i,
+      /signature/i,
+      /\/api\/v3\/order\b/i,
+      /\/fapi\/v1\/order\b/i,
+      /\/sapi\//i,
+      /\bPOST\b/,
+      /\b(create|place|cancel)Order\b/i,
+      /\b(positionSide|leverage|marginType)\b/i,
+    ]
+    for (const file of alertOnlySourceFiles) {
+      const source = await readFile(file, 'utf-8')
+      for (const pattern of forbidden) {
+        expect(source, `${file} must remain alert-only; forbidden pattern ${pattern}`).not.toMatch(pattern)
+      }
+    }
+  })
+
+  it('has no decision, proposal, risk-gate, or shadow-ledger integration surface', async () => {
+    const forbidden = [
+      /from ['"].*(?:tool\/trading|domain\/trading|domain\/auto-trading|core\/agent-event)['"]/,
+      /from ['"].*(?:shadow-report|decision-report)['"]/,
+      /\b(?:stagePlaceOrder|stageModifyOrder|stageClosePosition|stageCancelOrder)\b/,
+      /\b(?:riskGate|risk-gate|directionSource)\s*[:=]/i,
+      /\b(?:append|write|record).*shadow/i,
+      /\bstrategyShadow\b/i,
+    ]
+    for (const file of alertOnlySourceFiles) {
+      const source = await readFile(file, 'utf-8')
+      for (const pattern of forbidden) {
+        expect(source, `${file} must not integrate alert state into trading/proposal/shadow surfaces; forbidden pattern ${pattern}`).not.toMatch(pattern)
+      }
+    }
+  })
+
   it('warm-up: first tick writes a baseline and does NOT notify', async () => {
     const acc = fakeAccount('X')
     const pushed: string[] = []
