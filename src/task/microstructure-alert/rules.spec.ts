@@ -27,6 +27,9 @@ const CFG: MicroRuleConfig = {
   fundingChange: { medium: 0.00001, high: 0.00003 },
 }
 
+const sig = (type: MicroSignal['type'], severity: MicroSignal['severity']): MicroSignal =>
+  ({ type, severity, data: 'd', interpretation: 'i', action: 'a' })
+
 // A balanced book around mid 100: spread 0.1%, symmetric depth 10+10 within 0.5%.
 function book(over: Partial<OrderBookSnapshot> = {}): OrderBookSnapshot {
   return {
@@ -188,6 +191,12 @@ describe('funding_change', () => {
 })
 
 describe('buildMicroAlertMessage', () => {
+  function expectNoTradeInstructionLanguage(msg: string): void {
+    for (const forbidden of ['下單', '加碼', '買進', '賣出', '做多', '做空', '開倉', '平倉', '先別執行', '縮量', '只限價', '別追市價']) {
+      expect(msg).not.toContain(forbidden)
+    }
+  }
+
   it('renders 3-part Data/Interpretation/Action and the top severity', () => {
     const msg = buildMicroAlertMessage('BTCUSDT', [
       { type: 'spread_widening', severity: 'high', data: 'D1', interpretation: 'I1', action: 'A1' },
@@ -197,40 +206,50 @@ describe('buildMicroAlertMessage', () => {
     expect(msg).toContain('· 買賣價差變大')
     expect(msg).toContain('數據：D1')
     expect(msg).toContain('研判：I2')
-    expect(msg).toContain('建議：A2')
+    expect(msg).toContain('人工檢查：A2')
+  })
+
+  it('does not emit direct trade-instruction language', () => {
+    const msg = buildMicroAlertMessage('BTC', [
+      sig('spread_widening', 'critical'),
+      sig('depth_thinning', 'high'),
+      sig('orderbook_imbalance', 'high'),
+      sig('funding_extreme', 'critical'),
+      sig('funding_change', 'medium'),
+    ])
+    expectNoTradeInstructionLanguage(msg)
+    expect(msg).toContain('這不是交易指令')
   })
 })
 
 describe('buildMicroAlertMessage — execution verdict footer', () => {
-  const sig = (type: MicroSignal['type'], severity: MicroSignal['severity']): MicroSignal =>
-    ({ type, severity, data: 'd', interpretation: 'i', action: 'a' })
   const footer = (msg: string): string => msg.split('─────────────').at(-1) ?? ''
 
   it('🔴 別碰 when spread/depth is critical', () => {
     const msg = buildMicroAlertMessage('BTC', [sig('spread_widening', 'critical')])
-    expect(msg).toContain('🔴 執行結論')
-    expect(msg).toContain('執行成本過高')
-    expect(msg).toContain('別下市價單')
+    expect(msg).toContain('🔴 執行環境')
+    expect(msg).toContain('成本/深度風險過高')
+    expect(msg).toContain('high-friction')
   })
   it('🟡 縮量 when spread/depth is medium or high', () => {
     const msg = buildMicroAlertMessage('BTC', [sig('depth_thinning', 'medium')])
-    expect(msg).toContain('🟡 執行結論')
-    expect(msg).toContain('縮量')
+    expect(msg).toContain('🟡 執行環境')
+    expect(msg).toContain('流動性偏弱')
   })
   it.each(['medium', 'high', 'critical'] as const)(
     '🟢 remains execution-safe when funding is %s (no spread/depth cost)',
     (severity) => {
       const msg = buildMicroAlertMessage('BTC', [sig('funding_extreme', severity)])
-      expect(msg).toContain('🟢 執行結論')
+      expect(msg).toContain('🟢 執行環境')
       expect(msg).toContain('價差與深度正常')
-      expect(msg).toContain('別往「付資金費那側」加碼') // advisory note only
+      expect(msg).toContain('付費側持倉擁擠/成本升高') // advisory note only
     },
   )
   it.each(['medium', 'high', 'critical'] as const)(
     '🟢 remains execution-safe when imbalance is %s (no spread/depth cost)',
     (severity) => {
       const msg = buildMicroAlertMessage('BTC', [sig('orderbook_imbalance', severity)])
-      expect(msg).toContain('🟢 執行結論')
+      expect(msg).toContain('🟢 執行環境')
       expect(msg).toContain('薄的一側') // advisory note only
     },
   )
@@ -241,11 +260,11 @@ describe('buildMicroAlertMessage — execution verdict footer', () => {
       sig('depth_thinning', 'medium'),
       sig('spread_widening', 'critical'),
     ])
-    expect(msg).toContain('🔴 執行結論')
+    expect(msg).toContain('🔴 執行環境')
   })
   it('imbalance never sets the verdict and never emits a direction', () => {
     const msg = buildMicroAlertMessage('BTC', [sig('orderbook_imbalance', 'high'), sig('spread_widening', 'high')])
-    expect(msg).toContain('🟡 執行結論')        // driven by spread, not imbalance
+    expect(msg).toContain('🟡 執行環境')        // driven by spread, not imbalance
     expect(msg).toContain('薄的一側')            // imbalance is just an advisory note
     expect(msg).toContain('方向請看你的策略')
     expect(footer(msg)).not.toMatch(/偏多|偏空|做多|做空|買進|賣出/)

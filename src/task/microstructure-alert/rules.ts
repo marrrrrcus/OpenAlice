@@ -179,7 +179,7 @@ export function evalSpreadWidening(m: OrderBookMetrics, b: SymbolBaseline, cfg: 
     type: 'spread_widening', severity: sev,
     data: `買賣價差拉開到平常的 ${ratio.toFixed(1)} 倍（目前 ${m.spreadPct.toFixed(4)}%）。`,
     interpretation: '市場現在比較稀薄，用市價單成交容易吃到比較差的價格（滑價）。',
-    action: '這段時間別下大額市價單，也先別開高槓桿。',
+    action: '把目前標記為高摩擦執行環境，重新核對名目、槓桿與可接受滑價。',
   }
 }
 
@@ -192,7 +192,7 @@ export function evalDepthThinning(m: OrderBookMetrics, b: SymbolBaseline, cfg: M
     type: 'depth_thinning', severity: sev,
     data: `盤口附近的掛單量只剩平常的 ${(ratio * 100).toFixed(0)}%。`,
     interpretation: '掛單變少了，一點點成交量就可能把價格推得很快。',
-    action: '把下單量改小，也別在這種稀薄的盤口掛大單等成交。',
+    action: '把目前標記為低深度環境，任何既有執行計畫都需重新核對流動性。',
   }
 }
 
@@ -209,7 +209,7 @@ export function evalOrderbookImbalance(m: OrderBookMetrics, cfg: MicroRuleConfig
     interpretation: heavy === 'bid'
       ? '買單明顯比較多；價格往上衝阻力小，但要往下時下面接的單很少。'
       : '賣單明顯比較多；價格往下殺阻力小，但要往上時上面接的單很少。',
-    action: '把掛單少的那一邊當成比較危險的方向，別往那邊下市價單。',
+    action: '掛單少的一側代表被掃風險較高；這是風險標記，不是方向訊號。',
   }
 }
 
@@ -236,7 +236,7 @@ export function evalFundingExtreme(funding: number, b: SymbolBaseline, cfg: Micr
     type: 'funding_extreme', severity: sev,
     data: `資金費 ${(funding * 100).toFixed(4)}%，目前處在近期少見的極端區（第 ${pct.toFixed(0)} 百分位，${side}）。`,
     interpretation: '太多人壓同一邊；抱這個方向要一直付資金費、成本越來越高，人擠人時也容易被反向甩出去。',
-    action: '現在別再往「要付資金費的那一邊」加碼；一旦反轉，這邊的單容易被一起掃掉。',
+    action: '付費側持倉擁擠且資金成本升高；這是擁擠風險標記，不是反向訊號。',
   }
 }
 
@@ -256,7 +256,7 @@ export function evalFundingChange(current: number, b: SymbolBaseline, cfg: Micro
     type: 'funding_change', severity: sev,
     data: `資金費從 ${(b.lastFunding * 100).toFixed(4)}% 變成 ${(current * 100).toFixed(4)}%${flipped ? '（多空翻面）' : ''}。`,
     interpretation: '資金費突然大幅變動，代表大家的多空部位正在換邊，之前那批單在出場。',
-    action: '加碼前先重新看一下自己的部位，現在的資金費環境跟剛剛不一樣了。',
+    action: '資金費環境正在切換；既有部位假設需要重新核對。',
   }
 }
 
@@ -289,23 +289,23 @@ function executionVerdict(signals: MicroSignal[]): string {
     level = 'caution'
   }
   const head = level === 'avoid'
-    ? '🔴 執行結論：執行成本過高，這筆先別執行（別下市價單）'
+    ? '🔴 執行環境：成本/深度風險過高；人工 review 時標記為 high-friction'
     : level === 'caution'
-      ? '🟡 執行結論：縮量、只限價，別追市價'
-      : '🟢 執行結論：價差與深度正常；若策略要做，執行條件尚可'
+      ? '🟡 執行環境：流動性偏弱；人工 review 時需保守處理成本假設'
+      : '🟢 執行環境：價差與深度正常；僅代表成本環境未異常'
   const notes: string[] = []
-  if (signals.some((s) => s.type === 'funding_extreme')) notes.push('· 資金費極端 → 別往「付資金費那側」加碼')
-  if (signals.some((s) => s.type === 'orderbook_imbalance')) notes.push('· 掛單一邊倒 → 薄的一側是被掃風險方向，別往那側下市價')
-  if (signals.some((s) => s.type === 'funding_change')) notes.push('· 資金費在換邊 → 加碼前先重看自己的部位')
-  return ['─────────────', head, ...notes, '（方向請看你的策略，盤口不喊多空）'].join('\n')
+  if (signals.some((s) => s.type === 'funding_extreme')) notes.push('· 資金費極端 → 付費側持倉擁擠/成本升高')
+  if (signals.some((s) => s.type === 'orderbook_imbalance')) notes.push('· 掛單一邊倒 → 薄的一側被掃風險較高')
+  if (signals.some((s) => s.type === 'funding_change')) notes.push('· 資金費在換邊 → 部位假設需要重新核對')
+  return ['─────────────', head, ...notes, '（方向請看你的策略，盤口不喊多空；這不是交易指令）'].join('\n')
 }
 
-/** Three-part 數據 / 研判 / 建議 message + an execution-only verdict footer. */
+/** Three-part 數據 / 研判 / 人工檢查 message + an execution-environment footer. */
 export function buildMicroAlertMessage(symbol: string, signals: MicroSignal[]): string {
   const top = signals.reduce<MicroSeverity>((acc, s) => sevRank(s.severity) > sevRank(acc) ? s.severity : acc, 'medium')
   const lines = [`${SEV_ICON[top]} ${symbol} 微結構警報 — ${SEV_LABEL[top]}`]
   for (const s of signals) {
-    lines.push('', `· ${TYPE_LABEL[s.type]}`, `數據：${s.data}`, `研判：${s.interpretation}`, `建議：${s.action}`)
+    lines.push('', `· ${TYPE_LABEL[s.type]}`, `數據：${s.data}`, `研判：${s.interpretation}`, `人工檢查：${s.action}`)
   }
   lines.push('', executionVerdict(signals))
   return lines.join('\n')

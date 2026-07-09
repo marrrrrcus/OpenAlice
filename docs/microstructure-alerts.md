@@ -76,8 +76,9 @@ Every alert must explain risk rather than call direction.
 ## Alert Format
 
 Alerts are built in **Traditional Chinese**. Each signal uses a three-part
-shape — 數據 (data) / 研判 (interpretation) / 建議 (action) — and the whole
-alert closes with a single execution-only verdict footer.
+shape — 數據 (data) / 研判 (interpretation) / 人工檢查 (human review item) — and
+the whole alert closes with a single execution-environment footer. The wording
+must not become an order instruction.
 
 ```text
 🟠 BTC/USDT:USDT 微結構警報 — 高
@@ -85,26 +86,28 @@ alert closes with a single execution-only verdict footer.
 · 買賣價差變大
 數據：買賣價差拉開到平常的 7.0 倍（目前 0.0009%）。
 研判：市場現在比較稀薄，用市價單成交容易吃到比較差的價格（滑價）。
-建議：這段時間別下大額市價單，也先別開高槓桿。
+人工檢查：把目前標記為高摩擦執行環境，重新核對名目、槓桿與可接受滑價。
 
 · 掛單一邊倒
 數據：盤口附近，買方掛單比另一邊多 6.4 倍。
 研判：買單明顯比較多；價格往上衝阻力小，但要往下時下面接的單很少。
-建議：把掛單少的那一邊當成比較危險的方向，別往那邊下市價單。
+人工檢查：掛單少的一側代表被掃風險較高；這是風險標記，不是方向訊號。
 
 ─────────────
-🟡 執行結論：縮量、只限價，別追市價
-· 掛單一邊倒 → 薄的一側是被掃風險方向，別往那側下市價
-（方向請看你的策略，盤口不喊多空）
+🟡 執行環境：流動性偏弱；人工 review 時需保守處理成本假設
+· 掛單一邊倒 → 薄的一側被掃風險較高
+（方向請看你的策略，盤口不喊多空；這不是交易指令）
 ```
 
-**Execution verdict (footer).** The 🟢/🟡/🔴 line answers *"can I execute this
-cheaply / safely right now"*, never direction. It is driven by the
-execution-cost signals only — `spread_widening` + `depth_thinning`: critical →
-🔴「執行成本過高，這筆先別執行」; medium/high → 🟡「縮量、只限價，別追市價」;
-none → 🟢「價差與深度正常；若策略要做，執行條件尚可」. `funding_extreme` /
+**Execution environment footer.** The 🟢/🟡/🔴 line answers *"how frictional is
+the execution environment right now"*, never direction and never a command.
+It is driven by the execution-cost signals only — `spread_widening` +
+`depth_thinning`: critical → 🔴「成本/深度風險過高；人工 review 時標記為
+high-friction」; medium/high → 🟡「流動性偏弱；人工 review 時需保守處理成本假設」;
+none → 🟢「價差與深度正常；僅代表成本環境未異常」. `funding_extreme` /
 `orderbook_imbalance` / `funding_change` ride as advisory notes and **never set
-the verdict**. The footer always closes with 「方向請看你的策略，盤口不喊多空」.
+the footer level**. The footer always closes with
+「方向請看你的策略，盤口不喊多空；這不是交易指令」.
 
 This keeps Alice in a risk-management role and prevents "price prediction" or
 trade-call framing — consistent with
