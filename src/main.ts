@@ -59,7 +59,7 @@ import { createMetricsListener } from './task/metrics/index.js'
 import { createAgentWorkListener } from './core/agent-work-listener.js'
 import { NewsCollectorStore, NewsCollector } from './domain/news/index.js'
 import { createNewsArchiveTools } from './tool/news.js'
-import { createResearchShadowTools, createHumanDecisionReportTools, createMarketStateReportTools } from './tool/research.js'
+import { createResearchShadowTools, createHumanDecisionReportTools, createMarketStateReportTools, createLiveReadinessReportTools } from './tool/research.js'
 
 // ==================== Persistence paths ====================
 
@@ -226,6 +226,12 @@ async function main() {
   // Never a directionSource, proposal, or strategy-shadow result.
   toolCenter.register(createMarketStateReportTools({
     config: config.marketStateAlert,
+  }), 'research')
+  // Alert-only live readiness: config/state health, never a trade gate.
+  toolCenter.register(createLiveReadinessReportTools({
+    autoTrading: config.autoTrading,
+    marketStateAlert: config.marketStateAlert,
+    microstructureAlert: config.microstructureAlert,
   }), 'research')
 
   console.log(`tool-center: ${toolCenter.list().length} tools registered`)
