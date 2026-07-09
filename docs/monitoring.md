@@ -6,11 +6,17 @@ prompt-driven "check X every N minutes" cron jobs, whose every tick spent
 AI tokens fetching data via tool calls and produced a report even when
 nothing changed.
 
-Three are active by default — **market-report**, **account-report**,
-**news-alert**. A fourth, **microstructure-alert** (order book + funding
-risk), is wired but ships `enabled: false`; enable it per
-[microstructure-alerts.md](microstructure-alerts.md) once you've picked a
-CCXT `source` account and let its baselines warm up.
+Three legacy monitors are active by default — **market-report**,
+**account-report**, **news-alert**. Two alert-only guard layers can sit beside
+them:
+
+- **microstructure-alert** (order book + funding risk), wired but shipped
+  `enabled: false`; enable it per
+  [microstructure-alerts.md](microstructure-alerts.md) once you've picked a
+  CCXT `source` account and let its baselines warm up.
+- **live-readiness-alert**, a self-monitor for the alert-only live stack. It
+  checks that auto-trading remains disabled, Telegram delivery is configured,
+  BTC stress-state alerts are fresh, and microstructure alerts are fresh.
 
 **Read this before touching `src/task/market-report/`,
 `src/task/account-report/`, or `src/task/news-alert/`** — they share a
@@ -41,6 +47,7 @@ empty/unreachable.
 | account-report | 5m | no — fully deterministic | `data/account-report-state.json` | `account-report.json` |
 | news-alert | 10m | no — fully deterministic | `data/news-alert-state.json` | `news-alert.json` |
 | microstructure-alert | 2m order book / 30m funding | no — fully deterministic | `data/microstructure-alert-state.json` | `microstructure-alert.json` (`enabled:false` by default) |
+| live-readiness-alert | 15m when enabled | no — fully deterministic | `data/live-readiness-alert-state.json` | `live-readiness-alert.json` |
 
 Order book and funding-rate reads are exposed to Alice as live tools
 (`getOrderBook`, `getFundingRate`). The optional scheduled alert layer is
@@ -56,6 +63,8 @@ original-only on failure — never per calm tick).
 market-report spends tokens **only when an event fires** (see below), and
 even then it's a single small generation with the numbers pre-baked into
 the prompt (no tool calls). Calm ticks cost nothing.
+live-readiness-alert is also zero-AI: it reads local state/config and emits
+program-built operational messages only.
 
 ### Force-push priority
 
@@ -65,6 +74,62 @@ the last-interacted channel (see
 [shouldSurfaceToTelegram](../src/connectors/telegram/helpers.ts)). `'normal'`
 keeps the old "inline only when Telegram is active" behaviour. Use `'high'`
 for genuine alerts, `'normal'` for quiet/informational summaries.
+
+---
+
+## live-readiness-alert
+
+[src/task/live-readiness-alert/](../src/task/live-readiness-alert/) monitors
+whether the alert-only live stack itself is healthy. It is not a market signal,
+does not create proposals, and does not make the system trade.
+
+The underlying report is available two ways:
+
+```
+npm run live:readiness
+```
+
+and through the deterministic research tool `live_readiness_report`.
+
+Exit code semantics:
+
+- `0` means status `ok`.
+- `1` means status `attention` or the report could not be built.
+
+The report checks:
+
+- `autoTrading` is disabled.
+- `live-readiness-alert` is enabled when expected.
+- Telegram notification delivery is configured, with token/chat values
+  redacted.
+- `market-state-alert` is enabled and its scheduled state matches the latest
+  completed UTC daily BTC candle.
+- The current BTC market-state report can be computed.
+- `microstructure-alert` has a configured source, readable baseline/lifecycle
+  state, and a recent funding tick (fresh within `2 * fundingEvery`).
+
+The scheduled task sends:
+
+- a high-priority alert when status becomes `attention`;
+- no duplicate alert for the same attention fingerprint;
+- a new high-priority alert if the attention set changes;
+- a normal recovery message when status returns to `ok`.
+
+Corrupt readiness state fails closed: the task does not notify and does not
+overwrite the file. Fix the state deliberately instead of letting a broken
+dedup ledger self-heal silently.
+
+Operational runbook:
+
+1. Run `npm run live:readiness` before trusting the alert-only live stack.
+2. If it exits `1`, fix the listed checks before relying on TG alerts.
+3. Confirm `data/live-readiness-alert-state.json` exists after runtime start;
+   a healthy idle state looks like `{"schemaVersion":1,"lastStatus":"ok"}`.
+4. Treat any readiness alert as an operations issue, not as a trading view.
+
+Boundary: this monitor only says whether the alert system is trustworthy. It
+does not validate alpha, does not bless BTC stress/rebound as a strategy, and
+does not bypass the human Alice stage -> commit -> Trading as Git verdict path.
 
 ---
 
@@ -191,6 +256,10 @@ AI is the fallback, not the default. File in Linear.
 
 ## Common pitfalls
 
+- **Treating readiness as alpha evidence.** `live-readiness-alert` only proves
+  the alert stack is operational (TG configured, scheduled states fresh,
+  auto-trading disabled). It is not a signal, not a paper-trade verdict, and
+  not permission to place orders.
 - **Forgetting cold-start / first-observation handling.** Any "diff vs
   last state" rule (position open/close, NLV move) must anchor silently on
   the first observation, or it dumps the entire current state as "new" and
