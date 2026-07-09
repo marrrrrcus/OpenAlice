@@ -4,6 +4,7 @@ import { tool } from 'ai'
 import { z } from 'zod'
 import type {
   AutoTradingConfig,
+  Config,
   MarketStateAlertConfig,
   MicrostructureAlertConfig,
 } from '@/core/config.js'
@@ -32,6 +33,7 @@ export interface LiveReadinessReport {
 
 export interface LiveReadinessReportDeps {
   autoTrading: AutoTradingConfig
+  connectors: Config['connectors']
   marketStateAlert: MarketStateAlertConfig
   microstructureAlert: MicrostructureAlertConfig
   now?: () => Date
@@ -106,6 +108,24 @@ export async function buildLiveReadinessReport(deps: LiveReadinessReportDeps): P
     deps.autoTrading.enabled
       ? attention('auto_trading_disabled', 'Auto-trading disabled', 'autoTrading.enabled is true; current BTC stress layer is alert-only')
       : ok('auto_trading_disabled', 'Auto-trading disabled', 'autoTrading.enabled is false'),
+  )
+
+  checks.push(
+    deps.connectors.telegram.enabled
+      ? ok('telegram_enabled', 'Telegram connector enabled', 'telegram.enabled is true')
+      : attention('telegram_enabled', 'Telegram connector enabled', 'telegram.enabled is false; alerts cannot be delivered'),
+  )
+
+  checks.push(
+    deps.connectors.telegram.botToken
+      ? ok('telegram_bot_token', 'Telegram bot token present', 'bot token present; value redacted')
+      : attention('telegram_bot_token', 'Telegram bot token present', 'bot token missing; alerts cannot be delivered'),
+  )
+
+  checks.push(
+    deps.connectors.telegram.chatIds.length > 0
+      ? ok('telegram_chat_ids', 'Telegram chat target configured', `${deps.connectors.telegram.chatIds.length} chat target(s); ids redacted`)
+      : attention('telegram_chat_ids', 'Telegram chat target configured', 'no chat target configured; alerts cannot be delivered'),
   )
 
   checks.push(

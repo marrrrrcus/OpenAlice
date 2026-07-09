@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { buildLiveReadinessReport } from './live-readiness-report.js'
 import type {
   AutoTradingConfig,
+  Config,
   MarketStateAlertConfig,
   MicrostructureAlertConfig,
 } from '@/core/config.js'
@@ -22,6 +23,17 @@ const marketStateAlert: MarketStateAlertConfig = {
   timeoutDays: 60,
   smas: { sma60: 60, sma120: 120, sma200: 200, sma240: 240 },
   statePath: 'data/market-state-alert-state.json',
+}
+
+const connectors: Config['connectors'] = {
+  web: { port: 3002 },
+  mcpAsk: { enabled: false },
+  telegram: {
+    enabled: true,
+    botToken: 'redacted-token',
+    botUsername: 'alice_bot',
+    chatIds: [123],
+  },
 }
 
 const microstructureAlert: MicrostructureAlertConfig = {
@@ -75,6 +87,7 @@ describe('live_readiness_report', () => {
   it('reports OK when alert-only monitors are enabled and state files are readable', async () => {
     const report = await buildLiveReadinessReport({
       autoTrading: autoTradingOff,
+      connectors,
       marketStateAlert,
       microstructureAlert,
       now: () => new Date('2026-07-09T00:00:00Z'),
@@ -93,6 +106,8 @@ describe('live_readiness_report', () => {
     expect(report.scope).toBe('alert_only_monitoring')
     expect(report.checks.map((check) => check.status)).toEqual(Array(report.checks.length).fill('ok'))
     const rendered = JSON.stringify(report).toLowerCase()
+    expect(rendered).not.toContain('redacted-token')
+    expect(rendered).not.toContain('123')
     expect(rendered).not.toContain('buy')
     expect(rendered).not.toContain('sell')
     expect(rendered).not.toContain('validated')
@@ -101,6 +116,7 @@ describe('live_readiness_report', () => {
   it('raises attention if auto trading is enabled', async () => {
     const report = await buildLiveReadinessReport({
       autoTrading: { ...autoTradingOff, enabled: true },
+      connectors,
       marketStateAlert,
       microstructureAlert,
       readText,
@@ -118,9 +134,35 @@ describe('live_readiness_report', () => {
     expect(report.attentionItems.some((item) => item.includes('autoTrading.enabled is true'))).toBe(true)
   })
 
+  it('raises attention if Telegram delivery cannot send alerts', async () => {
+    const report = await buildLiveReadinessReport({
+      autoTrading: autoTradingOff,
+      connectors: {
+        ...connectors,
+        telegram: { enabled: true, chatIds: [] },
+      },
+      marketStateAlert,
+      microstructureAlert,
+      readText,
+      marketStateReport: async () => ({
+        status: 'ok',
+        symbol: 'BTCUSDT',
+        source: 'binance_spot_daily_close',
+        state: 'stress_watch',
+        dateUtc: '2026-07-08',
+        discipline: 'not a trade signal',
+      }),
+    })
+
+    expect(report.status).toBe('attention')
+    expect(report.attentionItems.some((item) => item.includes('bot token missing'))).toBe(true)
+    expect(report.attentionItems.some((item) => item.includes('no chat target configured'))).toBe(true)
+  })
+
   it('raises attention instead of trusting corrupt monitor state', async () => {
     const report = await buildLiveReadinessReport({
       autoTrading: autoTradingOff,
+      connectors,
       marketStateAlert,
       microstructureAlert,
       readText: async (path) => {
@@ -144,6 +186,7 @@ describe('live_readiness_report', () => {
   it('raises attention when the current BTC stress report is UNKNOWN', async () => {
     const report = await buildLiveReadinessReport({
       autoTrading: autoTradingOff,
+      connectors,
       marketStateAlert,
       microstructureAlert,
       readText,

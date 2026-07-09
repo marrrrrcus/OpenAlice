@@ -230,6 +230,7 @@ async function main() {
   // Alert-only live readiness: config/state health, never a trade gate.
   toolCenter.register(createLiveReadinessReportTools({
     autoTrading: config.autoTrading,
+    connectors: config.connectors,
     marketStateAlert: config.marketStateAlert,
     microstructureAlert: config.microstructureAlert,
   }), 'research')
