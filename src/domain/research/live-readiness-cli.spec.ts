@@ -11,6 +11,11 @@ function config(): Config {
       mcpAsk: { enabled: false },
       telegram: { enabled: true, botToken: 'super-secret-token', chatIds: [987654321] },
     },
+    liveReadinessAlert: {
+      enabled: true,
+      every: '15m',
+      statePath: 'data/live-readiness-alert-state.json',
+    },
     marketStateAlert: {
       enabled: true,
       every: '1h',

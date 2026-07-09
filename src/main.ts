@@ -54,12 +54,14 @@ import { createMarketStateAlert } from './task/market-state-alert/index.js'
 import { createAccountReport } from './task/account-report/index.js'
 import { createNewsAlert } from './task/news-alert/index.js'
 import { createMicrostructureAlert } from './task/microstructure-alert/index.js'
+import { createLiveReadinessAlert } from './task/live-readiness-alert/index.js'
 import { createAutoTradingScheduler } from './domain/auto-trading/scheduler.js'
 import { createMetricsListener } from './task/metrics/index.js'
 import { createAgentWorkListener } from './core/agent-work-listener.js'
 import { NewsCollectorStore, NewsCollector } from './domain/news/index.js'
 import { createNewsArchiveTools } from './tool/news.js'
 import { createResearchShadowTools, createHumanDecisionReportTools, createMarketStateReportTools, createLiveReadinessReportTools } from './tool/research.js'
+import { buildLiveReadinessReport } from './domain/research/live-readiness-report.js'
 
 // ==================== Persistence paths ====================
 
@@ -231,6 +233,7 @@ async function main() {
   toolCenter.register(createLiveReadinessReportTools({
     autoTrading: config.autoTrading,
     connectors: config.connectors,
+    liveReadinessAlert: config.liveReadinessAlert,
     marketStateAlert: config.marketStateAlert,
     microstructureAlert: config.microstructureAlert,
   }), 'research')
@@ -406,6 +409,25 @@ async function main() {
     console.log(`microstructure-alert: enabled (order book ${config.microstructureAlert.orderbookEvery}, funding ${config.microstructureAlert.fundingEvery})`)
   }
 
+  // ==================== Live Readiness Alert (Pump-driven, deterministic, zero-AI) ====================
+
+  const liveReadinessAlert = createLiveReadinessAlert({
+    config: config.liveReadinessAlert,
+    connectorCenter,
+    buildReport: () => buildLiveReadinessReport({
+      autoTrading: config.autoTrading,
+      connectors: config.connectors,
+      liveReadinessAlert: config.liveReadinessAlert,
+      marketStateAlert: config.marketStateAlert,
+      microstructureAlert: config.microstructureAlert,
+    }),
+  })
+  await liveReadinessAlert.start()
+  if (config.liveReadinessAlert.enabled) {
+    console.log(`live-readiness-alert: enabled (every ${config.liveReadinessAlert.every})`)
+    void liveReadinessAlert.runNow()
+  }
+
   // ==================== Auto-trading Scheduler (Pump-driven, Phase 1) ====================
 
   const autoTradingScheduler = createAutoTradingScheduler({
@@ -579,6 +601,7 @@ async function main() {
     accountReport.stop()
     newsAlert.stop()
     microstructureAlert.stop()
+    liveReadinessAlert.stop()
     autoTradingScheduler.stop()
     metricsListener.stop()
     cronListener.stop()

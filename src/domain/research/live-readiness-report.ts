@@ -6,6 +6,7 @@ import { parseDuration } from '@/core/duration.js'
 import type {
   AutoTradingConfig,
   Config,
+  LiveReadinessAlertConfig,
   MarketStateAlertConfig,
   MicrostructureAlertConfig,
 } from '@/core/config.js'
@@ -35,6 +36,7 @@ export interface LiveReadinessReport {
 export interface LiveReadinessReportDeps {
   autoTrading: AutoTradingConfig
   connectors: Config['connectors']
+  liveReadinessAlert: LiveReadinessAlertConfig
   marketStateAlert: MarketStateAlertConfig
   microstructureAlert: MicrostructureAlertConfig
   now?: () => Date
@@ -127,6 +129,12 @@ export async function buildLiveReadinessReport(deps: LiveReadinessReportDeps): P
     deps.autoTrading.enabled
       ? attention('auto_trading_disabled', 'Auto-trading disabled', 'autoTrading.enabled is true; current BTC stress layer is alert-only')
       : ok('auto_trading_disabled', 'Auto-trading disabled', 'autoTrading.enabled is false'),
+  )
+
+  checks.push(
+    deps.liveReadinessAlert.enabled
+      ? ok('live_readiness_alert_enabled', 'Readiness self-monitor enabled', `live-readiness-alert every ${deps.liveReadinessAlert.every}`)
+      : attention('live_readiness_alert_enabled', 'Readiness self-monitor enabled', 'live-readiness-alert is disabled; readiness attention will not self-notify'),
   )
 
   checks.push(

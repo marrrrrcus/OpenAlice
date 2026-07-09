@@ -488,6 +488,18 @@ export const microstructureAlertSchema = z.object({
 
 export type MicrostructureAlertConfig = z.infer<typeof microstructureAlertSchema>
 
+/**
+ * Readiness self-monitor for the alert-only stack. It notifies when the
+ * live_readiness_report needs attention, without changing any trading path.
+ */
+export const liveReadinessAlertSchema = z.object({
+  enabled: z.boolean().default(true),
+  every: z.string().default('15m'),
+  statePath: z.string().default('data/live-readiness-alert-state.json'),
+})
+
+export type LiveReadinessAlertConfig = z.infer<typeof liveReadinessAlertSchema>
+
 export const toolsSchema = z.object({
   /** Tool names that are disabled. Tools not listed are enabled by default. */
   disabled: z.array(z.string()).default([]),
@@ -585,6 +597,7 @@ export type Config = {
   accountReport: AccountReportConfig
   newsAlert: NewsAlertConfig
   microstructureAlert: MicrostructureAlertConfig
+  liveReadinessAlert: LiveReadinessAlertConfig
   mcp: z.infer<typeof mcpSchema>
   connectors: z.infer<typeof connectorsSchema>
   news: z.infer<typeof newsCollectorSchema>
@@ -627,7 +640,7 @@ export async function loadConfig(): Promise<Config> {
   // is pending. See src/migrations/INDEX.md for the full list.
   await runMigrations()
 
-  const files = ['engine.json', 'agent.json', 'crypto.json', 'securities.json', 'market-data.json', 'compaction.json', 'ai-provider-manager.json', 'heartbeat.json', 'snapshot.json', 'auto-trading.json', 'market-report.json', 'market-state-alert.json', 'account-report.json', 'news-alert.json', 'microstructure-alert.json', 'mcp.json', 'connectors.json', 'news.json', 'tools.json', 'webhook.json'] as const
+  const files = ['engine.json', 'agent.json', 'crypto.json', 'securities.json', 'market-data.json', 'compaction.json', 'ai-provider-manager.json', 'heartbeat.json', 'snapshot.json', 'auto-trading.json', 'market-report.json', 'market-state-alert.json', 'account-report.json', 'news-alert.json', 'microstructure-alert.json', 'live-readiness-alert.json', 'mcp.json', 'connectors.json', 'news.json', 'tools.json', 'webhook.json'] as const
   const raws = await Promise.all(files.map((f) => loadJsonFile(f)))
 
   const config: Config = {
@@ -646,11 +659,12 @@ export async function loadConfig(): Promise<Config> {
     accountReport: await parseAndSeed(files[12], accountReportSchema, raws[12]),
     newsAlert:     await parseAndSeed(files[13], newsAlertSchema, raws[13]),
     microstructureAlert: await parseAndSeed(files[14], microstructureAlertSchema, raws[14]),
-    mcp:           await parseAndSeed(files[15], mcpSchema, raws[15]),
-    connectors:    await parseAndSeed(files[16], connectorsSchema, raws[16]),
-    news:          await parseAndSeed(files[17], newsCollectorSchema, raws[17]),
-    tools:         await parseAndSeed(files[18], toolsSchema, raws[18]),
-    webhook:       await parseAndSeed(files[19], webhookSchema, raws[19]),
+    liveReadinessAlert: await parseAndSeed(files[15], liveReadinessAlertSchema, raws[15]),
+    mcp:           await parseAndSeed(files[16], mcpSchema, raws[16]),
+    connectors:    await parseAndSeed(files[17], connectorsSchema, raws[17]),
+    news:          await parseAndSeed(files[18], newsCollectorSchema, raws[18]),
+    tools:         await parseAndSeed(files[19], toolsSchema, raws[19]),
+    webhook:       await parseAndSeed(files[20], webhookSchema, raws[20]),
   }
 
   // Spawn-time-fixed channel: when guardian (Electron main) spawns the
@@ -1151,6 +1165,7 @@ const sectionSchemas: Record<ConfigSection, z.ZodTypeAny> = {
   accountReport: accountReportSchema,
   newsAlert: newsAlertSchema,
   microstructureAlert: microstructureAlertSchema,
+  liveReadinessAlert: liveReadinessAlertSchema,
   mcp: mcpSchema,
   connectors: connectorsSchema,
   news: newsCollectorSchema,
@@ -1174,6 +1189,7 @@ const sectionFiles: Record<ConfigSection, string> = {
   accountReport: 'account-report.json',
   newsAlert: 'news-alert.json',
   microstructureAlert: 'microstructure-alert.json',
+  liveReadinessAlert: 'live-readiness-alert.json',
   mcp: 'mcp.json',
   connectors: 'connectors.json',
   news: 'news.json',

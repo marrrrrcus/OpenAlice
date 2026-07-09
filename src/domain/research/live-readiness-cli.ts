@@ -23,6 +23,7 @@ export async function runLiveReadinessCli(deps: LiveReadinessCliDeps = {}): Prom
     const report = await buildReport({
       autoTrading: config.autoTrading,
       connectors: config.connectors,
+      liveReadinessAlert: config.liveReadinessAlert,
       marketStateAlert: config.marketStateAlert,
       microstructureAlert: config.microstructureAlert,
     })

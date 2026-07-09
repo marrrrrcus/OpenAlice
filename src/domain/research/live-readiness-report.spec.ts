@@ -39,6 +39,12 @@ const connectors: Config['connectors'] = {
   },
 }
 
+const liveReadinessAlert: Config['liveReadinessAlert'] = {
+  enabled: true,
+  every: '15m',
+  statePath: 'data/live-readiness-alert-state.json',
+}
+
 const microstructureAlert: MicrostructureAlertConfig = {
   enabled: true,
   source: 'ccxt-custom-7e373296',
@@ -91,6 +97,7 @@ describe('live_readiness_report', () => {
     const report = await buildLiveReadinessReport({
       autoTrading: autoTradingOff,
       connectors,
+      liveReadinessAlert,
       marketStateAlert,
       microstructureAlert,
       now: () => reportNow,
@@ -120,6 +127,7 @@ describe('live_readiness_report', () => {
     const report = await buildLiveReadinessReport({
       autoTrading: { ...autoTradingOff, enabled: true },
       connectors,
+      liveReadinessAlert,
       marketStateAlert,
       microstructureAlert,
       now: () => reportNow,
@@ -138,6 +146,29 @@ describe('live_readiness_report', () => {
     expect(report.attentionItems.some((item) => item.includes('autoTrading.enabled is true'))).toBe(true)
   })
 
+  it('raises attention if the readiness self-monitor is disabled', async () => {
+    const report = await buildLiveReadinessReport({
+      autoTrading: autoTradingOff,
+      connectors,
+      liveReadinessAlert: { ...liveReadinessAlert, enabled: false },
+      marketStateAlert,
+      microstructureAlert,
+      now: () => reportNow,
+      readText,
+      marketStateReport: async () => ({
+        status: 'ok',
+        symbol: 'BTCUSDT',
+        source: 'binance_spot_daily_close',
+        state: 'stress_watch',
+        dateUtc: '2026-07-08',
+        discipline: 'not a trade signal',
+      }),
+    })
+
+    expect(report.status).toBe('attention')
+    expect(report.attentionItems.some((item) => item.includes('live-readiness-alert is disabled'))).toBe(true)
+  })
+
   it('raises attention if Telegram delivery cannot send alerts', async () => {
     const report = await buildLiveReadinessReport({
       autoTrading: autoTradingOff,
@@ -145,6 +176,7 @@ describe('live_readiness_report', () => {
         ...connectors,
         telegram: { enabled: true, chatIds: [] },
       },
+      liveReadinessAlert,
       marketStateAlert,
       microstructureAlert,
       now: () => reportNow,
@@ -168,6 +200,7 @@ describe('live_readiness_report', () => {
     const report = await buildLiveReadinessReport({
       autoTrading: autoTradingOff,
       connectors,
+      liveReadinessAlert,
       marketStateAlert,
       microstructureAlert,
       now: () => reportNow,
@@ -190,6 +223,7 @@ describe('live_readiness_report', () => {
     const report = await buildLiveReadinessReport({
       autoTrading: autoTradingOff,
       connectors,
+      liveReadinessAlert,
       marketStateAlert,
       microstructureAlert,
       now: () => reportNow,
@@ -221,6 +255,7 @@ describe('live_readiness_report', () => {
     const report = await buildLiveReadinessReport({
       autoTrading: autoTradingOff,
       connectors,
+      liveReadinessAlert,
       marketStateAlert,
       microstructureAlert,
       now: () => reportNow,
@@ -246,6 +281,7 @@ describe('live_readiness_report', () => {
     const report = await buildLiveReadinessReport({
       autoTrading: autoTradingOff,
       connectors,
+      liveReadinessAlert,
       marketStateAlert,
       microstructureAlert,
       now: () => reportNow,
