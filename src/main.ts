@@ -407,6 +407,7 @@ async function main() {
   await microstructureAlert.start()
   if (config.microstructureAlert.enabled) {
     console.log(`microstructure-alert: enabled (order book ${config.microstructureAlert.orderbookEvery}, funding ${config.microstructureAlert.fundingEvery})`)
+    await microstructureAlert.runNow()
   }
 
   // ==================== Live Readiness Alert (Pump-driven, deterministic, zero-AI) ====================

@@ -64,7 +64,7 @@ Automation has two layers in OpenAlice. They're worth separating because each ev
 - **News** — breaking-headline keyword alerts from the RSS archive, tiered so it doesn't spam on every coin mention; matched headlines are translated to Traditional Chinese (original kept) when an alert fires
 - **Microstructure** *(explicit opt-in source required)* — order book + funding risk (spread widening, depth thinning, book imbalance, funding extreme/change) measured against per-symbol adaptive baselines. Each alert ends with an execution-only verdict (🟢 可執行 / 🟡 縮量限價 / 🔴 別碰) — it explains risk and execution quality, **never** calls price direction (see [trade-proposal-principles.md](docs/trade-proposal-principles.md))
 - **BTC stress state** — alert-only daily-close state machine for the BTC Stress Rebound v1 awareness monitor. It is a market-state notification layer, not a strategy shadow and not a proposal source.
-- **Live readiness** — self-monitor for the alert-only stack. It checks that auto-trading is off, Telegram delivery is configured, BTC stress state is fresh, and microstructure state is fresh.
+- **Live readiness** — self-monitor for the alert-only stack. It checks that auto-trading is off, Telegram delivery is configured, BTC stress state is fresh, and microstructure order-book/funding state is fresh.
 
 The legacy first three are active by default. `market-state-alert` and
 `live-readiness-alert` are alert-only guard layers; `microstructure-alert`

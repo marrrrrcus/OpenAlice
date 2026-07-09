@@ -42,12 +42,20 @@ function book(bestBid = 99.95, bestAsk = 100.05) {
 
 /** Mutable fake account — change `.ob` / `.funding` between ticks. */
 function fakeAccount(id: string) {
-  const state = { ob: book() as any, funding: 0.0001 as number | null, failFunding: false }
+  const state = {
+    ob: book() as any,
+    funding: 0.0001 as number | null,
+    failOrderBook: false,
+    failFunding: false,
+  }
   return {
     state,
     sdk: {
       id,
-      getOrderBook: async () => state.ob,
+      getOrderBook: async () => {
+        if (state.failOrderBook) throw new Error('order book API down')
+        return state.ob
+      },
       getFundingRate: async () => {
         if (state.failFunding) throw new Error('funding API down')
         return { fundingRate: state.funding }
@@ -118,6 +126,7 @@ describe('createMicrostructureAlert — tick orchestration (module-level)', () =
     const st = JSON.parse(await readFile(cfg.statePath, 'utf-8'))
     expect(st.baselines['BTC/USDT:USDT'].obSamples).toBe(1)
     expect(st.baselines['BTC/USDT:USDT'].spreadPctEwma).toBeGreaterThan(0)
+    expect(typeof st.lastOrderBookAtMs).toBe('number')
   })
 
   it('after warm-up, a spread spike force-pushes a high-priority alert', async () => {
@@ -153,6 +162,22 @@ describe('createMicrostructureAlert — tick orchestration (module-level)', () =
     expect(st.lastFundingAtMs).toBeNull() // not advanced -> will retry next tick
     // order book still processed despite funding failure
     expect(st.baselines['BTC/USDT:USDT'].obSamples).toBe(1)
+    expect(typeof st.lastOrderBookAtMs).toBe('number')
+  })
+
+  it('order-book clock does NOT advance when order book fails', async () => {
+    const acc = fakeAccount('X')
+    acc.state.failOrderBook = true
+    const cc = { notify: async () => ({} as any) } as any
+    const cfg = baseConfig()
+
+    const m = createMicrostructureAlert({ config: cfg, manager: fakeManager(acc.sdk), connectorCenter: cc, now: () => 1234 })
+    await m.start(); await m.runNow(); m.stop()
+
+    const st = JSON.parse(await readFile(cfg.statePath, 'utf-8'))
+    expect(st.lastOrderBookAtMs).toBeNull()
+    expect(st.lastFundingAtMs).toBe(1234)
+    expect(st.baselines['BTC/USDT:USDT'].fundingHistory.length).toBe(1)
   })
 
   it('funding clock advances once funding succeeds', async () => {
@@ -164,6 +189,7 @@ describe('createMicrostructureAlert — tick orchestration (module-level)', () =
     await m.start(); await m.runNow(); m.stop()
 
     const st = JSON.parse(await readFile(cfg.statePath, 'utf-8'))
+    expect(st.lastOrderBookAtMs).toBe(1234)
     expect(st.lastFundingAtMs).toBe(1234)
     expect(st.baselines['BTC/USDT:USDT'].fundingHistory.length).toBe(1)
   })

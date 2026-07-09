@@ -93,6 +93,7 @@ function checkMarketStateState(raw: unknown): MarketStateStateCheck {
 
 interface MicrostructureStateCheck {
   detail: string
+  lastOrderBookAtMs: number | null
   lastFundingAtMs: number | null
 }
 
@@ -103,6 +104,14 @@ function checkMicrostructureState(raw: unknown): MicrostructureStateCheck {
   const lifecycles = raw['lifecycles']
   if (!isRecord(lifecycles)) throw new Error('lifecycles must be an object')
   const lastFunding = raw['lastFundingAtMs']
+  const lastOrderBook = raw['lastOrderBookAtMs']
+  if (
+    lastOrderBook !== null
+    && lastOrderBook !== undefined
+    && (typeof lastOrderBook !== 'number' || !Number.isFinite(lastOrderBook) || lastOrderBook < 0)
+  ) {
+    throw new Error('lastOrderBookAtMs must be null or a non-negative finite number')
+  }
   if (
     lastFunding !== null
     && lastFunding !== undefined
@@ -113,6 +122,7 @@ function checkMicrostructureState(raw: unknown): MicrostructureStateCheck {
 
   return {
     detail: `state readable; ${Object.keys(baselines).length} baseline key(s), ${Object.keys(lifecycles).length} lifecycle key(s)`,
+    lastOrderBookAtMs: typeof lastOrderBook === 'number' ? lastOrderBook : null,
     lastFundingAtMs: typeof lastFunding === 'number' ? lastFunding : null,
   }
 }
@@ -226,6 +236,36 @@ export async function buildLiveReadinessReport(deps: LiveReadinessReportDeps): P
   try {
     const stateCheck = checkMicrostructureState(await readJson(deps.microstructureAlert.statePath, readText))
     checks.push(ok('microstructure_alert_state', 'Microstructure state file readable', stateCheck.detail))
+    const orderBookEveryMs = parseDuration(deps.microstructureAlert.orderbookEvery)
+    if (stateCheck.lastOrderBookAtMs === null) {
+      checks.push(attention(
+        'microstructure_orderbook_fresh',
+        'Microstructure order book state fresh',
+        'lastOrderBookAtMs is not recorded yet',
+      ))
+    } else if (!orderBookEveryMs) {
+      checks.push(attention(
+        'microstructure_orderbook_fresh',
+        'Microstructure order book state fresh',
+        `orderbookEvery is not parseable: ${deps.microstructureAlert.orderbookEvery}`,
+      ))
+    } else {
+      const ageMs = now().getTime() - stateCheck.lastOrderBookAtMs
+      const maxAgeMs = orderBookEveryMs * MICROSTRUCTURE_STALE_MULTIPLE
+      if (ageMs > maxAgeMs) {
+        checks.push(attention(
+          'microstructure_orderbook_fresh',
+          'Microstructure order book state fresh',
+          `last order book tick is ${Math.round(ageMs / 60_000)}m old; expected <= ${Math.round(maxAgeMs / 60_000)}m`,
+        ))
+      } else {
+        checks.push(ok(
+          'microstructure_orderbook_fresh',
+          'Microstructure order book state fresh',
+          `last order book tick is ${Math.max(0, Math.round(ageMs / 60_000))}m old`,
+        ))
+      }
+    }
     const fundingEveryMs = parseDuration(deps.microstructureAlert.fundingEvery)
     if (stateCheck.lastFundingAtMs === null) {
       checks.push(attention(

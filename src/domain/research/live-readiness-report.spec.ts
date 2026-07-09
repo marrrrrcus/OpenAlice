@@ -14,6 +14,7 @@ const autoTradingOff: AutoTradingConfig = {
 }
 
 const reportNow = new Date('2026-07-09T00:30:00Z')
+const freshOrderBookMs = Date.parse('2026-07-09T00:28:00Z')
 const freshFundingMs = Date.parse('2026-07-09T00:10:00Z')
 
 const marketStateAlert: MarketStateAlertConfig = {
@@ -80,6 +81,7 @@ const files = new Map<string, string>([
     JSON.stringify({
       baselines: { btc: {}, eth: {} },
       lifecycles: { btc: {} },
+      lastOrderBookAtMs: freshOrderBookMs,
       lastFundingAtMs: freshFundingMs,
     }),
   ],
@@ -232,6 +234,7 @@ describe('live_readiness_report', () => {
           return JSON.stringify({
             baselines: { btc: {}, eth: {} },
             lifecycles: { btc: {} },
+            lastOrderBookAtMs: freshOrderBookMs,
             lastFundingAtMs: Date.parse('2026-07-08T22:00:00Z'),
           })
         }
@@ -249,6 +252,39 @@ describe('live_readiness_report', () => {
 
     expect(report.status).toBe('attention')
     expect(report.attentionItems.some((item) => item.includes('last funding tick is'))).toBe(true)
+  })
+
+  it('raises attention when the microstructure order book state is stale', async () => {
+    const report = await buildLiveReadinessReport({
+      autoTrading: autoTradingOff,
+      connectors,
+      liveReadinessAlert,
+      marketStateAlert,
+      microstructureAlert,
+      now: () => reportNow,
+      readText: async (path) => {
+        if (path.includes('microstructure-alert-state')) {
+          return JSON.stringify({
+            baselines: { btc: {}, eth: {} },
+            lifecycles: { btc: {} },
+            lastOrderBookAtMs: Date.parse('2026-07-09T00:20:00Z'),
+            lastFundingAtMs: freshFundingMs,
+          })
+        }
+        return readText(path)
+      },
+      marketStateReport: async () => ({
+        status: 'ok',
+        symbol: 'BTCUSDT',
+        source: 'binance_spot_daily_close',
+        state: 'stress_watch',
+        dateUtc: '2026-07-08',
+        discipline: 'not a trade signal',
+      }),
+    })
+
+    expect(report.status).toBe('attention')
+    expect(report.attentionItems.some((item) => item.includes('last order book tick is'))).toBe(true)
   })
 
   it('raises attention instead of trusting corrupt monitor state', async () => {

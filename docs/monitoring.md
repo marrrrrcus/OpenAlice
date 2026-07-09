@@ -106,7 +106,8 @@ The report checks:
   completed UTC daily BTC candle.
 - The current BTC market-state report can be computed.
 - `microstructure-alert` has a configured source, readable baseline/lifecycle
-  state, and a recent funding tick (fresh within `2 * fundingEvery`).
+  state, a recent order-book tick (fresh within `2 * orderbookEvery`), and a
+  recent funding tick (fresh within `2 * fundingEvery`).
 
 The scheduled task sends:
 

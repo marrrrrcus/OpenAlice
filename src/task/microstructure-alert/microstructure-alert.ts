@@ -51,11 +51,12 @@ import { decideNotification, emptyLifecycle, type AlertLifecycle } from './lifec
 export interface MicrostructureState {
   baselines: Record<string, SymbolBaseline>
   lifecycles: Record<string, Record<string, AlertLifecycle>>
+  lastOrderBookAtMs: number | null
   lastFundingAtMs: number | null
 }
 
 function defaultState(): MicrostructureState {
-  return { baselines: {}, lifecycles: {}, lastFundingAtMs: null }
+  return { baselines: {}, lifecycles: {}, lastOrderBookAtMs: null, lastFundingAtMs: null }
 }
 
 // ==================== Module ====================
@@ -110,6 +111,13 @@ export function createMicrostructureAlert(opts: MicrostructureAlertOpts): Micros
         throw new Error('lifecycles must be an object')
       }
       if (
+        state.lastOrderBookAtMs !== undefined
+        && state.lastOrderBookAtMs !== null
+        && (!Number.isFinite(state.lastOrderBookAtMs) || state.lastOrderBookAtMs < 0)
+      ) {
+        throw new Error('lastOrderBookAtMs must be null or a non-negative finite number')
+      }
+      if (
         state.lastFundingAtMs !== undefined
         && state.lastFundingAtMs !== null
         && (!Number.isFinite(state.lastFundingAtMs) || state.lastFundingAtMs < 0)
@@ -119,6 +127,7 @@ export function createMicrostructureAlert(opts: MicrostructureAlertOpts): Micros
       return {
         baselines: state.baselines ?? {},
         lifecycles: state.lifecycles ?? {},
+        lastOrderBookAtMs: state.lastOrderBookAtMs ?? null,
         lastFundingAtMs: state.lastFundingAtMs ?? null,
       }
     } catch (err) {
@@ -185,13 +194,15 @@ export function createMicrostructureAlert(opts: MicrostructureAlertOpts): Micros
     baseline: SymbolBaseline,
     ob: { bids: [number, number][]; asks: [number, number][] } | null,
     funding: number | null,
-  ): { results: Map<MicroAlertType, MicroSignal | null>; nextBaseline: SymbolBaseline } {
+  ): { results: Map<MicroAlertType, MicroSignal | null>; nextBaseline: SymbolBaseline; orderBookObserved: boolean } {
     const results = new Map<MicroAlertType, MicroSignal | null>()
     let next = baseline
+    let orderBookObserved = false
 
     if (ob) {
       const m = computeOrderBookMetrics(ob)
       if (m) {
+        orderBookObserved = true
         // Evaluate against the baseline that EXCLUDES this tick, then fold in.
         results.set('spread_widening', evalSpreadWidening(m, baseline, ruleCfg))
         results.set('depth_thinning', evalDepthThinning(m, baseline, ruleCfg))
@@ -206,7 +217,7 @@ export function createMicrostructureAlert(opts: MicrostructureAlertOpts): Micros
       next = updateFundingBaseline(next, funding, config.fundingHistoryCap)
     }
 
-    return { results, nextBaseline: next }
+    return { results, nextBaseline: next, orderBookObserved }
   }
 
   // ---- tick ----
@@ -222,6 +233,7 @@ export function createMicrostructureAlert(opts: MicrostructureAlertOpts): Micros
     // actually came back — otherwise a transient funding-API failure would
     // silently push the next retry out by a whole fundingEvery window.
     let fundingSucceeded = false
+    let orderBookSucceeded = false
 
     for (const symbol of config.symbols) {
       const contract = buildContract(acc, symbol)
@@ -247,7 +259,8 @@ export function createMicrostructureAlert(opts: MicrostructureAlertOpts): Micros
       if (!ob && funding === null) continue
 
       const prevBaseline = state.baselines[symbol] ?? emptyBaseline()
-      const { results, nextBaseline } = evaluateSymbol(prevBaseline, ob, funding)
+      const { results, nextBaseline, orderBookObserved } = evaluateSymbol(prevBaseline, ob, funding)
+      if (orderBookObserved) orderBookSucceeded = true
       state.baselines[symbol] = nextBaseline
 
       // Lifecycle gate per (symbol, alert_type); collect what to notify.
@@ -270,6 +283,7 @@ export function createMicrostructureAlert(opts: MicrostructureAlertOpts): Micros
       }
     }
 
+    if (orderBookSucceeded) state.lastOrderBookAtMs = now()
     if (fundingDue && fundingSucceeded) state.lastFundingAtMs = now()
     await saveState(state)
   }
