@@ -69,15 +69,18 @@ Automation has two layers in OpenAlice. They're worth separating because each ev
 The legacy first three are active by default. `market-state-alert` and
 `live-readiness-alert` are alert-only guard layers; `microstructure-alert`
 requires an explicit CCXT `source` account before use. Before trusting the
-alert-only live stack, run:
+alert-only live stack, run the combined code-health + runtime-readiness
+preflight:
 
 ```bash
-npm run live:readiness
+npm run live:preflight
 ```
 
-Exit code `0` means the alert stack is operational; exit code `1` means fix
-the reported readiness issues before relying on Telegram alerts. This command
-does not validate alpha and is not permission to place orders. See
+Exit code `0` means TypeScript compiles and the alert stack is operational;
+exit code `1` means fix either the code-health failure or the reported
+readiness issues before relying on Telegram alerts. This command does not
+validate alpha and is not permission to place orders. Use `npm run
+live:readiness` when you only need the runtime readiness JSON. See
 [docs/monitoring.md](docs/monitoring.md) and the
 [microstructure alert design](docs/microstructure-alerts.md) for the full
 design (hysteresis, cold-start handling, force-push priority).
@@ -558,15 +561,16 @@ All config lives in `data/config/` as JSON files with Zod validation. Missing fi
 
 Microstructure note: `getOrderBook` and `getFundingRate` are live read-only
 trading tools. `microstructure-alert.json` can turn them into scheduled
-order book + funding risk alerts, but it ships `enabled: false`. Symbols are
-CCXT unified native symbols such as `BTC/USDT:USDT`; the task constructs
-`accountId|symbol` aliceIds directly rather than using `searchContracts`.
+order book + funding risk alerts, but only enable it with an explicit CCXT
+`source` account. Symbols are CCXT unified native symbols such as
+`BTC/USDT:USDT`; the task constructs `accountId|symbol` aliceIds directly
+rather than using `searchContracts`.
 See [docs/microstructure-alerts.md](docs/microstructure-alerts.md).
 
-Live readiness note: `npm run live:readiness` is the operational preflight for
-the alert-only stack. A green result means the monitors and Telegram delivery
-look healthy; it is not a strategy verdict, not a shadow promotion, and not a
-trade authorization.
+Live readiness note: `npm run live:preflight` is the normal preflight for the
+alert-only stack (typecheck plus readiness JSON). A green result means the code
+compiles and the monitors / Telegram delivery look healthy; it is not a
+strategy verdict, not a shadow promotion, and not a trade authorization.
 
 Persona and heartbeat prompts use a **default + user override** pattern:
 

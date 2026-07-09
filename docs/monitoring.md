@@ -121,8 +121,10 @@ dedup ledger self-heal silently.
 
 Operational runbook:
 
-1. Run `npm run live:readiness` before trusting the alert-only live stack.
-2. If it exits `1`, fix the listed checks before relying on TG alerts.
+1. Run `npm run live:preflight` before trusting the alert-only live stack.
+2. If it exits `1`, fix the TypeScript failure or listed readiness checks
+   before relying on TG alerts. Use `npm run live:readiness` when you only need
+   the runtime readiness JSON.
 3. Confirm `data/live-readiness-alert-state.json` exists after runtime start;
    a healthy idle state looks like `{"schemaVersion":1,"lastStatus":"ok"}`.
 4. Treat any readiness alert as an operations issue, not as a trading view.
