@@ -38,7 +38,7 @@ Alice runs on your own machine, because trading involves private keys and real m
 
 ### Research & Analysis
 
-- **Exchange microstructure reads** — connected CCXT crypto accounts expose live order book depth and funding-rate reads to Alice via `getOrderBook` / `getFundingRate`. These are read-only public exchange data calls; the optional microstructure alert task ships off by default.
+- **Exchange microstructure reads** — connected CCXT crypto accounts expose live order book depth and funding-rate reads to Alice via `getOrderBook` / `getFundingRate`. These are read-only public exchange data calls; the scheduled alert layer requires an explicit CCXT source and is checked by `npm run live:preflight` once enabled.
 - **Market data** — equity, crypto, commodity, currency, and macro data via TypeScript-native OpenBB engine. Unified cross-asset symbol search and technical indicator calculator
 - **Fundamental research** — company profiles, financial statements, ratios, analyst estimates, earnings calendar, insider trading, and market movers. Currently deepest for equities, expanding to other asset classes
 - **News** — background RSS collection with archive search

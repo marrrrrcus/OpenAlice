@@ -10,10 +10,11 @@ Three legacy monitors are active by default — **market-report**,
 **account-report**, **news-alert**. Two alert-only guard layers can sit beside
 them:
 
-- **microstructure-alert** (order book + funding risk), wired but shipped
-  `enabled: false`; enable it per
+- **microstructure-alert** (order book + funding risk), schema-default off and
+  explicit-source only. Enable it per
   [microstructure-alerts.md](microstructure-alerts.md) once you've picked a
-  CCXT `source` account and let its baselines warm up.
+  CCXT `source` account and let its baselines warm up; in the alert-only
+  live-ready profile, `live:preflight` expects it to be enabled and fresh.
 - **live-readiness-alert**, a self-monitor for the alert-only live stack. It
   checks that auto-trading remains disabled, Telegram delivery is configured,
   BTC stress-state alerts are fresh, and microstructure alerts are fresh.
@@ -46,13 +47,12 @@ empty/unreachable.
 | market-report | 30m | **events only** (RSI/price summaries) | `data/market-report-state.json` | `market-report.json` |
 | account-report | 5m | no — fully deterministic | `data/account-report-state.json` | `account-report.json` |
 | news-alert | 10m | no — fully deterministic | `data/news-alert-state.json` | `news-alert.json` |
-| microstructure-alert | 2m order book / 30m funding | no — fully deterministic | `data/microstructure-alert-state.json` | `microstructure-alert.json` (`enabled:false` by default) |
+| microstructure-alert | 2m order book / 30m funding | no — fully deterministic | `data/microstructure-alert-state.json` | `microstructure-alert.json` (explicit `source` required) |
 | live-readiness-alert | 15m when enabled | no — fully deterministic | `data/live-readiness-alert-state.json` | `live-readiness-alert.json` |
 
 Order book and funding-rate reads are exposed to Alice as live tools
-(`getOrderBook`, `getFundingRate`). The optional scheduled alert layer is
-implemented but ships off by default; see
-[microstructure-alerts.md](microstructure-alerts.md).
+(`getOrderBook`, `getFundingRate`). The scheduled alert layer is opt-in by
+explicit `source`; see [microstructure-alerts.md](microstructure-alerts.md).
 
 ### Token cost
 

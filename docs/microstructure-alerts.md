@@ -14,8 +14,11 @@ Implemented today:
   through the connected CCXT accounts.
 - `src/task/microstructure-alert/` implements scheduled, deterministic
   order book + funding risk alerts.
-- The task ships **off by default** (`data/config/microstructure-alert.json`
-  has `enabled:false`) so baselines and noise can be reviewed before use.
+- The schema/default-seeded task is **off by default** so baselines and noise
+  can be reviewed before use. A live-ready local profile may explicitly enable
+  it only after a CCXT `source` account and symbols are chosen; then
+  `npm run live:preflight` expects the configured monitor to be enabled,
+  readable, and fresh.
 
 Not implemented yet:
 
