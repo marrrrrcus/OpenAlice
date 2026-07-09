@@ -62,9 +62,25 @@ Automation has two layers in OpenAlice. They're worth separating because each ev
 - **Market** — BTC/ETH price + RSI(14), alerting on RSI crossing overbought/oversold or a price move past a threshold (the only monitor that uses AI, and only to write the summary once an event fires)
 - **Account** — your connected broker accounts (OKX, Binance, …): drawdown thresholds, near-liquidation distance, net-value moves, and position open/close. Fully program-driven — zero tokens. Risk events get `🚨`, informational ones `📊`
 - **News** — breaking-headline keyword alerts from the RSS archive, tiered so it doesn't spam on every coin mention; matched headlines are translated to Traditional Chinese (original kept) when an alert fires
-- **Microstructure** *(optional, off by default)* — order book + funding risk (spread widening, depth thinning, book imbalance, funding extreme/change) measured against per-symbol adaptive baselines. Each alert ends with an execution-only verdict (🟢 可執行 / 🟡 縮量限價 / 🔴 別碰) — it explains risk and execution quality, **never** calls price direction (see [trade-proposal-principles.md](docs/trade-proposal-principles.md))
+- **Microstructure** *(explicit opt-in source required)* — order book + funding risk (spread widening, depth thinning, book imbalance, funding extreme/change) measured against per-symbol adaptive baselines. Each alert ends with an execution-only verdict (🟢 可執行 / 🟡 縮量限價 / 🔴 別碰) — it explains risk and execution quality, **never** calls price direction (see [trade-proposal-principles.md](docs/trade-proposal-principles.md))
+- **BTC stress state** — alert-only daily-close state machine for the BTC Stress Rebound v1 awareness monitor. It is a market-state notification layer, not a strategy shadow and not a proposal source.
+- **Live readiness** — self-monitor for the alert-only stack. It checks that auto-trading is off, Telegram delivery is configured, BTC stress state is fresh, and microstructure state is fresh.
 
-The first three are active by default; microstructure ships `enabled: false` until you pick a CCXT `source` account. See [docs/monitoring.md](docs/monitoring.md) and the [microstructure alert design](docs/microstructure-alerts.md) for the full design (hysteresis, cold-start handling, force-push priority).
+The legacy first three are active by default. `market-state-alert` and
+`live-readiness-alert` are alert-only guard layers; `microstructure-alert`
+requires an explicit CCXT `source` account before use. Before trusting the
+alert-only live stack, run:
+
+```bash
+npm run live:readiness
+```
+
+Exit code `0` means the alert stack is operational; exit code `1` means fix
+the reported readiness issues before relying on Telegram alerts. This command
+does not validate alpha and is not permission to place orders. See
+[docs/monitoring.md](docs/monitoring.md) and the
+[microstructure alert design](docs/microstructure-alerts.md) for the full
+design (hysteresis, cold-start handling, force-push priority).
 
 ### Interface
 
@@ -531,8 +547,11 @@ All config lives in `data/config/` as JSON files with Zod validation. Missing fi
 | `market-data.json` | Data backend (`typebb-sdk` / `openbb-api`), per-asset-class providers, provider API keys, embedded HTTP server config |
 | `news.json` | RSS feeds, fetch interval, retention period |
 | `market-report.json` | Market monitor: symbols, RSI thresholds, price-move %, snapshot path ([docs/monitoring.md](docs/monitoring.md)) |
+| `market-state-alert.json` | BTC Stress Rebound v1 awareness monitor: daily-close state machine, SMA periods, state path |
 | `account-report.json` | Account monitor: drawdown layers, liquidation safety %, NLV-move %, dust floor |
 | `news-alert.json` | News monitor: tiered keyword lists, lookback window, dedup bound |
+| `microstructure-alert.json` | Order book + funding risk monitor; read-only, alert-only, requires explicit CCXT source |
+| `live-readiness-alert.json` | Self-monitor for alert-only live readiness; reports attention/recovery, never trades |
 | `snapshot.json` | Account snapshot interval and retention |
 | `compaction.json` | Context window limits, auto-compaction thresholds |
 | `heartbeat.json` | Heartbeat enable/disable, interval, active hours |
@@ -543,6 +562,11 @@ order book + funding risk alerts, but it ships `enabled: false`. Symbols are
 CCXT unified native symbols such as `BTC/USDT:USDT`; the task constructs
 `accountId|symbol` aliceIds directly rather than using `searchContracts`.
 See [docs/microstructure-alerts.md](docs/microstructure-alerts.md).
+
+Live readiness note: `npm run live:readiness` is the operational preflight for
+the alert-only stack. A green result means the monitors and Telegram delivery
+look healthy; it is not a strategy verdict, not a shadow promotion, and not a
+trade authorization.
 
 Persona and heartbeat prompts use a **default + user override** pattern:
 
