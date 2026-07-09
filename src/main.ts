@@ -50,6 +50,7 @@ import { createEventBus } from './core/event-bus.js'
 import { createCronEngine, createCronListener, createCronTools } from './task/cron/index.js'
 import { createHeartbeat } from './task/heartbeat/index.js'
 import { createMarketReport } from './task/market-report/index.js'
+import { createMarketStateAlert } from './task/market-state-alert/index.js'
 import { createAccountReport } from './task/account-report/index.js'
 import { createNewsAlert } from './task/news-alert/index.js'
 import { createMicrostructureAlert } from './task/microstructure-alert/index.js'
@@ -58,7 +59,7 @@ import { createMetricsListener } from './task/metrics/index.js'
 import { createAgentWorkListener } from './core/agent-work-listener.js'
 import { NewsCollectorStore, NewsCollector } from './domain/news/index.js'
 import { createNewsArchiveTools } from './tool/news.js'
-import { createResearchShadowTools, createHumanDecisionReportTools } from './tool/research.js'
+import { createResearchShadowTools, createHumanDecisionReportTools, createMarketStateReportTools } from './tool/research.js'
 
 // ==================== Persistence paths ====================
 
@@ -221,6 +222,11 @@ async function main() {
   toolCenter.register(createHumanDecisionReportTools({
     readEvents: (type) => eventLog.read({ type }),
   }), 'research')
+  // BTC Stress Rebound v1 — awareness monitor report only.
+  // Never a directionSource, proposal, or strategy-shadow result.
+  toolCenter.register(createMarketStateReportTools({
+    config: config.marketStateAlert,
+  }), 'research')
 
   console.log(`tool-center: ${toolCenter.list().length} tools registered`)
 
@@ -323,6 +329,17 @@ async function main() {
   await marketReport.start()
   if (config.marketReport.enabled) {
     console.log(`market-report: enabled (every ${config.marketReport.every}, quiet summary every ${config.marketReport.summaryEvery})`)
+  }
+
+  // ==================== Market State Alert (Pump-driven, deterministic, zero-AI) ====================
+
+  const marketStateAlert = createMarketStateAlert({
+    config: config.marketStateAlert,
+    connectorCenter,
+  })
+  await marketStateAlert.start()
+  if (config.marketStateAlert.enabled) {
+    console.log(`market-state-alert: enabled (every ${config.marketStateAlert.every}, symbol ${config.marketStateAlert.symbol})`)
   }
 
   // ==================== Account Report (Pump-driven, deterministic, zero-AI) ====================
@@ -546,6 +563,7 @@ async function main() {
     newsCollector?.stop()
     heartbeat.stop()
     marketReport.stop()
+    marketStateAlert.stop()
     accountReport.stop()
     newsAlert.stop()
     microstructureAlert.stop()

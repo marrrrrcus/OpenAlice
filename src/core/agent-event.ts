@@ -217,6 +217,7 @@ const SourceUnion = Type.Union([
   Type.Literal('task'),
   Type.Literal('manual'),
   Type.Literal('market-report'),
+  Type.Literal('market-state-alert'),
   Type.Literal('account-report'),
   Type.Literal('news-alert'),
   Type.Literal('microstructure-alert'),
