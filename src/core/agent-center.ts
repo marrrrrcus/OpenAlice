@@ -110,7 +110,7 @@ export class AgentCenter {
       : await compactIfNeeded(
           session,
           this.compaction,
-          async (summarizePrompt) => (await provider.ask(summarizePrompt)).text,
+          async (summarizePrompt) => (await provider.ask(summarizePrompt, profile)).text,
         )
 
     // 4. Read active window

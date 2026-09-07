@@ -184,6 +184,29 @@ describe('AgentCenter', () => {
       )
     })
 
+    it('passes the resolved profile into the compaction summarizer provider call', async () => {
+      const { compactIfNeeded } = await import('./compaction.js')
+      vi.mocked(compactIfNeeded).mockImplementationOnce(async (_session, _config, summarize) => {
+        await summarize('summarize this session')
+        return { compacted: false, method: 'none' }
+      })
+      const askSpy = vi.spyOn(VercelAIProvider.prototype, 'ask')
+      const model = makeMockModel('summary')
+      const agentCenter = makeAgentCenter({ model })
+      const session = new MemorySessionStore()
+
+      await agentCenter.askWithSession('test', session)
+
+      expect(askSpy).toHaveBeenCalledWith(
+        'summarize this session',
+        expect.objectContaining({
+          backend: 'vercel-ai-sdk',
+          model: 'mock-model',
+        }),
+      )
+      askSpy.mockRestore()
+    })
+
     it('uses activeEntries from compaction result when available', async () => {
       const { compactIfNeeded } = await import('./compaction.js')
       const activeEntries: SessionEntry[] = [{
